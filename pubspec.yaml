@@ -1,0 +1,42 @@
+name: flutter_iron_chinyg
+description: "Приложение для прослушивания осетинских аудиокниг"
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.8.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # Основные зависимости
+  http: ^1.3.0
+  equatable: ^2.0.7
+  
+  # Riverpod - используем стабильную версию
+  flutter_riverpod: ^2.6.1
+  riverpod: ^2.6.1
+  
+  # Функциональное программирование
+  dartz: ^0.10.1
+  cached_network_image: ^3.4.1
+
+  # Для отображения HTML в виджетах
+  flutter_widget_from_html: ^0.16.1
+
+  # Аудиоплеер
+  just_audio: ^0.9.36
+  audio_session: ^0.1.18
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  
+  # Тестирование - используем совместимые версии
+  mockito: ^5.4.5
+  build_runner: ^2.4.15
+
+flutter:
+  uses-material-design: true
