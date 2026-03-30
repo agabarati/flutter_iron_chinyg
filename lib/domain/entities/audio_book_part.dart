@@ -13,6 +13,7 @@ class AudioBookPart extends Equatable {
   final String? text;
   final String reader;
   final String audioUrl;
+  final String coverUrl; // Добавляем поле для обложки
   final Duration duration;
   final int order;
   final Dialect dialect;
@@ -24,6 +25,7 @@ class AudioBookPart extends Equatable {
     this.text,
     required this.reader,
     required this.audioUrl,
+    required this.coverUrl,
     required this.duration,
     required this.order,
     required this.dialect,
@@ -37,6 +39,7 @@ class AudioBookPart extends Equatable {
     text,
     reader,
     audioUrl,
+    coverUrl,
     duration,
     order,
     dialect,

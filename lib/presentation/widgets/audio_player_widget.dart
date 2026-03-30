@@ -1,6 +1,8 @@
 // lib/presentation/widgets/audio_player_widget.dart
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 import 'package:audio_session/audio_session.dart';
 import '../../domain/entities/audio_book_part.dart';
 
@@ -21,33 +23,61 @@ class AudioPlayerWidget extends StatefulWidget {
 }
 
 class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
-  final AudioPlayer _player = AudioPlayer();
+  late final AudioPlayer _player;
   bool _isPlaying = false;
   Duration _duration = Duration.zero;
   Duration _position = Duration.zero;
+  bool _isLoading = false;
+  bool _isInitialized = false;
+  AudioSession? _audioSession;
 
   @override
   void initState() {
     super.initState();
+    _player = AudioPlayer();
     _initAudioSession();
     _setupPlayerListeners();
+
+    if (widget.currentPart != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _loadPart(widget.currentPart!);
+      });
+    }
   }
 
+  /// Инициализация аудио-сессии для корректного управления аудио-фокусом
   Future<void> _initAudioSession() async {
-    final session = await AudioSession.instance;
-    await session.configure(const AudioSessionConfiguration.speech());
+    try {
+      _audioSession = await AudioSession.instance;
+      await _audioSession!.configure(const AudioSessionConfiguration.music());
+    } catch (e) {
+      print('Ошибка инициализации AudioSession: $e');
+    }
   }
 
   void _setupPlayerListeners() {
     _player.positionStream.listen((position) {
       if (mounted) setState(() => _position = position);
     });
+
     _player.durationStream.listen((duration) {
       if (mounted) setState(() => _duration = duration ?? Duration.zero);
     });
+
     _player.playerStateStream.listen((state) {
       if (mounted) {
-        setState(() => _isPlaying = state.playing);
+        setState(() {
+          _isPlaying = state.playing;
+          _isLoading =
+              state.processingState == ProcessingState.loading ||
+              state.processingState == ProcessingState.buffering;
+          _isInitialized = state.processingState == ProcessingState.ready;
+        });
+
+        // Автоматическое переключение на следующую часть при завершении
+        if (state.processingState == ProcessingState.completed) {
+          _nextPart();
+        }
       }
     });
   }
@@ -55,38 +85,75 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
   @override
   void didUpdateWidget(AudioPlayerWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.currentPart != oldWidget.currentPart) {
-      _loadPart(widget.currentPart);
+    if (widget.currentPart != oldWidget.currentPart &&
+        widget.currentPart != null) {
+      _loadPart(widget.currentPart!);
     }
   }
 
-  Future<void> _loadPart(AudioBookPart? part) async {
-    if (part == null) return;
+  /// Загрузка и воспроизведение части с поддержкой фонового режима
+  Future<void> _loadPart(AudioBookPart part) async {
+    if (_isLoading) return;
+
+    setState(() {
+      _isLoading = true;
+      _isInitialized = false;
+    });
 
     try {
-      await _player.setAudioSource(AudioSource.uri(Uri.parse(part.audioUrl)));
-      _player.play();
+      await _player.stop();
+
+      // КЛЮЧЕВОЙ МОМЕНТ: Создаем MediaItem для отображения в уведомлении
+      final mediaItem = MediaItem(
+        id: part.id.toString(),
+        title: part.title ?? 'Аудиокнига',
+        artist: part.reader,
+        duration: part.duration,
+        artUri: part.coverUrl.isNotEmpty ? Uri.tryParse(part.coverUrl) : null,
+      );
+
+      // Устанавливаем источник с метаданными для фонового уведомления
+      await _player.setAudioSource(
+        AudioSource.uri(
+          Uri.parse(part.audioUrl),
+          tag: mediaItem, // <-- БЕЗ ЭТОГО НЕ БУДЕТ УВЕДОМЛЕНИЯ!
+        ),
+      );
+
+      // Запрос аудио-фокуса перед воспроизведением
+      if (_audioSession != null) {
+        await _audioSession!.setActive(true);
+      }
+
+      await _player.play();
     } catch (e) {
+      print('Ошибка загрузки аудио: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Ошибка загрузки: $e'),
+            content: Text('Не удалось загрузить: ${part.title ?? "часть"}'),
             backgroundColor: Colors.red,
           ),
         );
       }
+      setState(() => _isLoading = false);
     }
   }
 
   void _playPause() {
+    if (!_isInitialized) return;
     if (_isPlaying) {
       _player.pause();
+      // При паузе можно отпустить аудио-фокус
+      _audioSession?.setActive(false);
     } else {
+      _audioSession?.setActive(true);
       _player.play();
     }
   }
 
   void _seekForward() {
+    if (!_isInitialized) return;
     final newPosition = _position + const Duration(seconds: 10);
     if (newPosition < _duration) {
       _player.seek(newPosition);
@@ -94,11 +161,28 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
   }
 
   void _seekBackward() {
+    if (!_isInitialized) return;
     final newPosition = _position - const Duration(seconds: 10);
     if (newPosition > Duration.zero) {
       _player.seek(newPosition);
     } else {
       _player.seek(Duration.zero);
+    }
+  }
+
+  void _previousPart() {
+    if (widget.currentPart == null) return;
+    final currentIndex = widget.parts.indexOf(widget.currentPart!);
+    if (currentIndex > 0) {
+      widget.onPartChanged(widget.parts[currentIndex - 1]);
+    }
+  }
+
+  void _nextPart() {
+    if (widget.currentPart == null) return;
+    final currentIndex = widget.parts.indexOf(widget.currentPart!);
+    if (currentIndex < widget.parts.length - 1) {
+      widget.onPartChanged(widget.parts[currentIndex + 1]);
     }
   }
 
@@ -111,7 +195,7 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
   @override
   Widget build(BuildContext context) {
     final hasPart = widget.currentPart != null;
-    final progress = _duration.inSeconds > 0
+    final progress = _duration.inSeconds > 0 && _isInitialized
         ? _position.inSeconds / _duration.inSeconds
         : 0.0;
 
@@ -130,10 +214,17 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
           ),
           const SizedBox(height: 12),
 
-          // Прогресс-бар
+          // Индикатор загрузки
+          if (_isLoading)
+            const Padding(
+              padding: EdgeInsets.all(8.0),
+              child: LinearProgressIndicator(),
+            ),
+
+          // Ползунок прогресса
           Slider(
             value: progress,
-            onChanged: hasPart
+            onChanged: hasPart && _isInitialized && !_isLoading
                 ? (value) {
                     final position = Duration(
                       seconds: (value * _duration.inSeconds).round(),
@@ -159,11 +250,21 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
             children: [
               IconButton(
                 icon: const Icon(Icons.skip_previous, size: 32),
-                onPressed: hasPart ? _previousPart : null,
+                onPressed:
+                    hasPart &&
+                        _isInitialized &&
+                        !_isLoading &&
+                        widget.parts.length > 1
+                    ? _previousPart
+                    : null,
+                tooltip: 'Предыдущая часть',
               ),
               IconButton(
                 icon: const Icon(Icons.replay_10, size: 32),
-                onPressed: hasPart ? _seekBackward : null,
+                onPressed: hasPart && _isInitialized && !_isLoading
+                    ? _seekBackward
+                    : null,
+                tooltip: 'Назад 10 секунд',
               ),
               Container(
                 margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -174,38 +275,35 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
                         : Icons.play_circle_filled,
                     size: 56,
                   ),
-                  onPressed: hasPart ? _playPause : null,
+                  onPressed: hasPart && _isInitialized && !_isLoading
+                      ? _playPause
+                      : null,
+                  tooltip: _isPlaying ? 'Пауза' : 'Воспроизвести',
                 ),
               ),
               IconButton(
                 icon: const Icon(Icons.forward_10, size: 32),
-                onPressed: hasPart ? _seekForward : null,
+                onPressed: hasPart && _isInitialized && !_isLoading
+                    ? _seekForward
+                    : null,
+                tooltip: 'Вперед 10 секунд',
               ),
               IconButton(
                 icon: const Icon(Icons.skip_next, size: 32),
-                onPressed: hasPart ? _nextPart : null,
+                onPressed:
+                    hasPart &&
+                        _isInitialized &&
+                        !_isLoading &&
+                        widget.parts.length > 1
+                    ? _nextPart
+                    : null,
+                tooltip: 'Следующая часть',
               ),
             ],
           ),
         ],
       ),
     );
-  }
-
-  void _previousPart() {
-    if (widget.currentPart == null) return;
-    final currentIndex = widget.parts.indexOf(widget.currentPart!);
-    if (currentIndex > 0) {
-      widget.onPartChanged(widget.parts[currentIndex - 1]);
-    }
-  }
-
-  void _nextPart() {
-    if (widget.currentPart == null) return;
-    final currentIndex = widget.parts.indexOf(widget.currentPart!);
-    if (currentIndex < widget.parts.length - 1) {
-      widget.onPartChanged(widget.parts[currentIndex + 1]);
-    }
   }
 
   @override

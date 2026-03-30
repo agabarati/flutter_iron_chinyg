@@ -6,8 +6,8 @@ plugins {
 }
 
 android {
-    // namespace = "com.example.flutter_iron_chinyg"
-    namespace = "com.ironapp.ironaudiobooks"
+    namespace = "com.example.flutter_iron_chinyg"
+    // namespace = "com.ironapp.ironaudiobooks"
     compileSdk = flutter.compileSdkVersion
     // ndkVersion = flutter.ndkVersion
 

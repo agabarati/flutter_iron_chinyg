@@ -6,16 +6,17 @@ import 'package:equatable/equatable.dart';
 class AudioBookPartModel extends Equatable {
   final int id;
   final int bookId;
-  final String? title; // Название части
-  final String? text; // Текст части (только это поле!)
+  final String? title;
+  final String? text;
   final String reader;
-  final String audiofile; // Путь к аудиофайлу
-  final String length; // Длительность в формате "ММ:СС"
-  final String dialect; // Диалект (IRN, DGR) - храним как строку
-  final int order; // Порядковый номер в книге
+  final String audiofile;
+  final String length;
+  final String dialect;
+  final int order;
   final bool published;
-  final int listened; // Статистика прослушиваний
-  final int listenedIos; // Статистика прослушиваний на iOS
+  final int listened;
+  final int listenedIos;
+  final String cover;
 
   const AudioBookPartModel({
     required this.id,
@@ -30,6 +31,7 @@ class AudioBookPartModel extends Equatable {
     required this.published,
     required this.listened,
     required this.listenedIos,
+    required this.cover,
   });
 
   /// Фабричный метод для создания модели из JSON
@@ -48,6 +50,7 @@ class AudioBookPartModel extends Equatable {
       published: json['published'] as bool? ?? true,
       listened: json['listened'] as int? ?? 0,
       listenedIos: json['listened_ios'] as int? ?? 0,
+      cover: '',
     );
   }
 
@@ -67,6 +70,7 @@ class AudioBookPartModel extends Equatable {
       published: true,
       listened: int.tryParse(json['listened']?.toString() ?? '0') ?? 0,
       listenedIos: 0,
+      cover: '',
     );
   }
 

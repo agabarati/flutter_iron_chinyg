@@ -31,6 +31,8 @@ class BookCard extends StatelessWidget {
                   width: 80,
                   height: 100,
                   fit: BoxFit.cover,
+                  memCacheWidth: 200, // Оптимизация размера в памяти
+                  memCacheHeight: 250,
                   placeholder: (context, url) => Container(
                     width: 80,
                     height: 100,

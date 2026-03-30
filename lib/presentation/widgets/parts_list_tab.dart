@@ -23,34 +23,41 @@ class PartsListTab extends StatelessWidget {
         final part = parts[index];
         final isSelected = currentPart?.id == part.id;
 
-        return ListTile(
-          leading: CircleAvatar(
-            backgroundColor: isSelected
-                ? Theme.of(context).primaryColor
-                : Colors.grey[300],
-            child: Text(
-              '${index + 1}',
-              style: TextStyle(
-                color: isSelected ? Colors.white : Colors.grey[700],
+        return Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          color: isSelected
+              ? Theme.of(context).primaryColor.withOpacity(0.1)
+              : null,
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundColor: isSelected
+                  ? Theme.of(context).primaryColor
+                  : Colors.grey[300],
+              child: Text(
+                '${index + 1}',
+                style: TextStyle(
+                  color: isSelected ? Colors.white : Colors.grey[700],
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
-          ),
-          title: Text(
-            part.title ?? 'Часть ${index + 1}',
-            style: TextStyle(
-              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-              color: isSelected ? Theme.of(context).primaryColor : null,
+            title: Text(
+              part.title ?? 'Часть ${index + 1}',
+              style: TextStyle(
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                color: isSelected ? Theme.of(context).primaryColor : null,
+              ),
             ),
+            subtitle: Text(_formatDuration(part.duration)),
+            trailing: isSelected
+                ? Icon(Icons.play_circle, color: Theme.of(context).primaryColor)
+                : null,
+            selected: isSelected,
+            onTap: () {
+              print('Выбрана часть: ${part.title}');
+              onPartSelected(part);
+            },
           ),
-          subtitle: Text(
-            _formatDuration(part.duration),
-            style: const TextStyle(fontSize: 12),
-          ),
-          trailing: isSelected
-              ? Icon(Icons.play_circle, color: Theme.of(context).primaryColor)
-              : null,
-          selected: isSelected,
-          onTap: () => onPartSelected(part),
         );
       },
     );

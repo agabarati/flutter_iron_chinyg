@@ -1,6 +1,14 @@
 // lib/presentation/providers/providers.dart
+import 'package:audio_service/audio_service.dart';
+import 'package:flutter_iron_chinyg/data/repositories/playback_repository_impl.dart';
+import 'package:flutter_iron_chinyg/domain/entities/playback_progress.dart';
+import 'package:flutter_iron_chinyg/domain/repositories/playback_repository.dart';
+import 'package:flutter_iron_chinyg/services/audio_player_service.dart';
+import 'package:flutter_iron_chinyg/services/audio_service_factory.dart';
 import 'package:http/http.dart' as http;
+import 'package:just_audio_background/just_audio_background.dart';
 import 'package:riverpod/riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/datasources/audio_book_remote_datasource.dart';
 import '../../data/datasources/translation_remote_datasource.dart';
@@ -48,29 +56,81 @@ final audioBookDetailsProvider = FutureProvider.family<AudioBook, int>((
   return result.fold((failure) => throw failure, (data) => data);
 });
 
-// Перевод
+// 🌐 Translation Data Source
 final translationRemoteDataSourceProvider =
     Provider<TranslationRemoteDataSource>((ref) {
       return TranslationRemoteDataSource(client: ref.watch(httpClientProvider));
     });
 
+// 📚 Translation Repository
 final translationRepositoryProvider = Provider<TranslationRepository>((ref) {
   return TranslationRepositoryImpl(
     remoteDataSource: ref.watch(translationRemoteDataSourceProvider),
   );
 });
 
+// 🈂️ Параметры для перевода
 class TranslationParams {
   final String word;
   final Dialect dialect;
+
   const TranslationParams({required this.word, required this.dialect});
 }
 
+// 🈂️ Провайдер для перевода слова
 final translateWordProvider = FutureProvider.family<String, TranslationParams>((
   ref,
   params,
 ) async {
-  final repo = ref.watch(translationRepositoryProvider);
-  final result = await repo.translateWord(params.word, params.dialect);
+  final repository = ref.watch(translationRepositoryProvider);
+  final result = await repository.translateWord(params.word, params.dialect);
+
   return result.fold((failure) => throw failure, (html) => html);
+});
+
+// 💾 SharedPreferences
+final sharedPreferencesProvider = FutureProvider<SharedPreferences>((
+  ref,
+) async {
+  return await SharedPreferences.getInstance();
+});
+
+// 📊 Playback Repository
+final playbackRepositoryProvider = Provider<PlaybackRepository>((ref) {
+  final prefs = ref.watch(sharedPreferencesProvider).value;
+  if (prefs == null) {
+    throw Exception('SharedPreferences не инициализированы');
+  }
+  return PlaybackRepositoryImpl(prefs: prefs);
+});
+
+// 🎯 Провайдер для прогресса книги
+final bookProgressProvider = FutureProvider.family<List<PlaybackProgress>, int>(
+  (ref, bookId) async {
+    final repository = ref.watch(playbackRepositoryProvider);
+    final result = await repository.getBookProgress(bookId);
+
+    return result.fold((failure) => throw failure, (progresses) => progresses);
+  },
+);
+
+// 🎵 Audio Service провайдер
+final audioServiceProvider = FutureProvider<AudioPlayerService>((ref) async {
+  // Инициализируем just_audio_background
+  await JustAudioBackground.init(
+    androidNotificationChannelId: 'com.ironapp.ironaudiobooks.channel.audio',
+    androidNotificationChannelName: 'Аудиоплеер',
+    androidNotificationOngoing: true,
+  );
+
+  // Запускаем сервис
+  return await AudioService.init(
+    builder: getAudioPlayerService,
+    config: const AudioServiceConfig(
+      androidNotificationChannelId: 'com.ironapp.ironaudiobooks.channel.audio',
+      androidNotificationChannelName: 'Аудиоплеер',
+      androidNotificationOngoing: true,
+      androidStopForegroundOnPause: true,
+    ),
+  );
 });

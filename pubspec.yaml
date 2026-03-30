@@ -28,6 +28,12 @@ dependencies:
   # Аудиоплеер
   just_audio: ^0.9.36
   audio_session: ^0.1.18
+  shared_preferences: ^2.5.3
+
+  # Фоновое воспроизведение
+
+  just_audio_background: ^0.0.1-beta.17
+  audio_service: ^0.18.18
 
 dev_dependencies:
   flutter_test:

@@ -113,6 +113,9 @@ class AudioBookRepositoryImpl implements AudioBookRepository {
     // Определяем диалект (IRN -> iron, DIG -> digor)
     final dialect = model.dialect == 'IRN' ? Dialect.iron : Dialect.digor;
 
+    // Получаем URL обложки из книги
+    final coverUrl = '${_mediaBaseUrl}${model.cover}';
+
     return AudioBookPart(
       id: model.id,
       bookId: model.bookId,
@@ -120,9 +123,10 @@ class AudioBookRepositoryImpl implements AudioBookRepository {
       text: model.text,
       reader: model.reader,
       audioUrl: audioUrl,
+      coverUrl: coverUrl,
       duration: duration,
       order: model.order,
-      dialect: dialect, // Добавляем диалект
+      dialect: dialect,
     );
   }
 
