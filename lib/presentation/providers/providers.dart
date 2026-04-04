@@ -11,7 +11,6 @@ import '../../domain/repositories/translation_repository.dart';
 import '../../domain/entities/audio_book_preview.dart';
 import '../../domain/entities/audio_book.dart';
 import '../../domain/entities/audio_book_part.dart';
-import '../../services/audio_player_service.dart';
 
 // 🌐 HTTP клиент
 final httpClientProvider = Provider<http.Client>((ref) {

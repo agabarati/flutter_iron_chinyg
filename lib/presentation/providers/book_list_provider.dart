@@ -38,7 +38,6 @@ class BookListState {
 class BookListNotifier extends StateNotifier<BookListState> {
   BookListNotifier() : super(BookListState.initial());
 
-  final _remoteDataSource = AudioBookRemoteDataSource(client: http.Client());
   final _repository = AudioBookRepositoryImpl(
     remoteDataSource: AudioBookRemoteDataSource(client: http.Client()),
   );

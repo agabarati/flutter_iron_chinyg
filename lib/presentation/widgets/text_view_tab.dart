@@ -21,7 +21,6 @@ class TextViewTab extends ConsumerStatefulWidget {
 class _TextViewTabState extends ConsumerState<TextViewTab> {
   final Map<String, String> _translationCache = {};
   String? _cachedCss;
-  int _currentIndex = -1;
   String _currentText = '';
   AudioPlayerService? _service;
 
@@ -40,7 +39,6 @@ class _TextViewTabState extends ConsumerState<TextViewTab> {
     if (mounted) {
       setState(() {
         _service = service;
-        _currentIndex = service.currentIndex;
         _currentText = _getCurrentText(service);
       });
 
@@ -48,7 +46,6 @@ class _TextViewTabState extends ConsumerState<TextViewTab> {
         if (mounted) {
           final newText = _getCurrentText(service);
           setState(() {
-            _currentIndex = service.currentIndex;
             _currentText = newText;
           });
         }
