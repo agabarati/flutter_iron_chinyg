@@ -1,27 +1,52 @@
 // lib/presentation/widgets/parts_list_tab.dart
 import 'package:flutter/material.dart';
-import '../../domain/entities/audio_book_part.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../services/audio_player_service.dart';
+import '../../domain/entities/audio_book.dart';
 
-class PartsListTab extends StatelessWidget {
-  final List<AudioBookPart> parts;
-  final AudioBookPart? currentPart;
-  final Function(AudioBookPart) onPartSelected;
+class PartsListTab extends ConsumerStatefulWidget {
+  final AudioBook book;
 
-  const PartsListTab({
-    super.key,
-    required this.parts,
-    this.currentPart,
-    required this.onPartSelected,
-  });
+  const PartsListTab({super.key, required this.book});
+
+  @override
+  ConsumerState<PartsListTab> createState() => _PartsListTabState();
+}
+
+class _PartsListTabState extends ConsumerState<PartsListTab> {
+  int _currentIndex = -1;
+
+  @override
+  void initState() {
+    super.initState();
+    final service = AudioPlayerService.instance;
+    _currentIndex = service.currentIndex;
+
+    // Слушаем изменения в сервисе
+    service.statusStream.listen((status) {
+      if (mounted) {
+        setState(() {
+          _currentIndex = service.currentIndex;
+        });
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
+    final parts = widget.book.parts;
+    final service = AudioPlayerService.instance;
+
+    if (parts.isEmpty) {
+      return const Center(child: Text('Нет доступных частей'));
+    }
+
     return ListView.builder(
       padding: const EdgeInsets.symmetric(vertical: 8),
       itemCount: parts.length,
       itemBuilder: (context, index) {
         final part = parts[index];
-        final isSelected = currentPart?.id == part.id;
+        final isSelected = index == _currentIndex;
 
         return Card(
           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -54,8 +79,7 @@ class PartsListTab extends StatelessWidget {
                 : null,
             selected: isSelected,
             onTap: () {
-              print('Выбрана часть: ${part.title}');
-              onPartSelected(part);
+              service.playPart(index);
             },
           ),
         );

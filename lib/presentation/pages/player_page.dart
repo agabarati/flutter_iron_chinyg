@@ -1,27 +1,29 @@
 // lib/presentation/pages/player_page.dart
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
+
 import '../widgets/audio_player_widget.dart';
 import '../widgets/parts_list_tab.dart';
 import '../widgets/text_view_tab.dart';
+import '../../services/audio_player_service.dart';
 import '../../domain/entities/audio_book.dart';
-import '../../domain/entities/audio_book_part.dart';
 import '../../core/errors/failures.dart';
 import '../../data/repositories/audio_book_repository_impl.dart';
 import '../../data/datasources/audio_book_remote_datasource.dart';
-import 'package:http/http.dart' as http;
 
-class PlayerPage extends StatefulWidget {
+class PlayerPage extends ConsumerStatefulWidget {
   final int bookId;
 
   const PlayerPage({super.key, required this.bookId});
 
   @override
-  State<PlayerPage> createState() => _PlayerPageState();
+  ConsumerState<PlayerPage> createState() => _PlayerPageState();
 }
 
-class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
+class _PlayerPageState extends ConsumerState<PlayerPage>
+    with TickerProviderStateMixin {
   late TabController _tabController;
-  AudioBookPart? _currentPart;
   AudioBook? _book;
   bool _isLoading = true;
   String? _error;
@@ -59,6 +61,10 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
             _book = book;
             _isLoading = false;
           });
+
+          // После загрузки книги, устанавливаем плейлист в сервис
+          final service = AudioPlayerService.instance;
+          service.setPlaylist(book.parts, startIndex: 0);
         },
       );
     } catch (e) {
@@ -67,12 +73,6 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
         _isLoading = false;
       });
     }
-  }
-
-  void _onPartSelected(AudioBookPart part) {
-    setState(() {
-      _currentPart = part;
-    });
   }
 
   @override
@@ -85,8 +85,8 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Scaffold(
-        appBar: AppBar(title: Text('Аудиокнига')),
-        body: Center(child: CircularProgressIndicator()),
+        appBar: AppBar(title: const Text('Аудиокнига')),
+        body: const Center(child: CircularProgressIndicator()),
       );
     }
 
@@ -129,8 +129,8 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
 
     if (_book == null) {
       return Scaffold(
-        appBar: AppBar(title: Text('Аудиокнига')),
-        body: Center(child: Text('Книга не найдена')),
+        appBar: AppBar(title: const Text('Аудиокнига')),
+        body: const Center(child: Text('Книга не найдена')),
       );
     }
 
@@ -147,44 +147,17 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       ),
       body: Column(
         children: [
-          // Аудиоплеер (без параметра service)
-          AudioPlayerWidget(
-            parts: _book!.parts,
-            currentPart: _currentPart,
-            onPartChanged: _onPartSelected,
-          ),
+          // Аудиоплеер получает книгу напрямую
+          AudioPlayerWidget(book: _book!),
           const Divider(height: 1),
           Expanded(
             child: TabBarView(
               controller: _tabController,
               children: [
-                PartsListTab(
-                  parts: _book!.parts,
-                  currentPart: _currentPart,
-                  onPartSelected: _onPartSelected,
-                ),
-                _currentPart != null
-                    ? TextViewTab(part: _currentPart!)
-                    : Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.arrow_back,
-                              size: 48,
-                              color: Colors.grey[400],
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              'Выберите часть для отображения текста',
-                              style: TextStyle(
-                                fontSize: 16,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                // Список частей получает книгу напрямую
+                PartsListTab(book: _book!),
+                // Текстовая вкладка получает книгу напрямую
+                TextViewTab(book: _book!),
               ],
             ),
           ),

@@ -2,4 +2,6 @@
 import 'package:audio_service/audio_service.dart';
 import 'audio_player_service.dart';
 
-AudioPlayerService getAudioPlayerService() => AudioPlayerService();
+AudioPlayerService getAudioPlayerService() {
+  return AudioPlayerService.instance;
+}

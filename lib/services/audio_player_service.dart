@@ -11,17 +11,42 @@ class PlaybackStatus {
   final Duration position;
   final Duration duration;
   final int currentIndex;
+  final List<AudioBookPart> parts;
+  final bool isInitialized;
 
   PlaybackStatus({
     required this.playing,
     required this.position,
     required this.duration,
     required this.currentIndex,
+    required this.parts,
+    required this.isInitialized,
   });
+
+  static PlaybackStatus empty() => PlaybackStatus(
+    playing: false,
+    position: Duration.zero,
+    duration: Duration.zero,
+    currentIndex: -1,
+    parts: [],
+    isInitialized: false,
+  );
 }
 
 /// Сервис фонового воспроизведения
 class AudioPlayerService extends BaseAudioHandler {
+  static AudioPlayerService? _instance;
+
+  AudioPlayerService() {
+    _instance = this;
+    _init();
+  }
+
+  static AudioPlayerService get instance {
+    _instance ??= AudioPlayerService();
+    return _instance!;
+  }
+
   final AudioPlayer _player = AudioPlayer();
   List<AudioBookPart> _parts = [];
   int _currentIndex = -1;
@@ -29,36 +54,60 @@ class AudioPlayerService extends BaseAudioHandler {
   final _statusController = StreamController<PlaybackStatus>.broadcast();
   Stream<PlaybackStatus> get statusStream => _statusController.stream;
 
-  AudioPlayerService() {
-    _setup();
-  }
+  bool get isPlaying => _player.playing;
+  Duration get currentPosition => _player.position;
+  Duration get currentDuration => _player.duration ?? Duration.zero;
+  int get currentIndex => _currentIndex;
+  AudioBookPart? get currentPart =>
+      _currentIndex >= 0 ? _parts[_currentIndex] : null;
+  List<AudioBookPart> get parts => List.unmodifiable(_parts);
 
-  void _setup() {
-    _player.positionStream.listen((pos) => _broadcast());
-    _player.durationStream.listen((_) => _broadcast());
+  Future<void> _init() async {
     _player.playerStateStream.listen((state) {
-      _broadcast();
-      if (state.processingState == ProcessingState.completed) {
+      _broadcastState();
+      if (state.processingState == ProcessingState.completed &&
+          _currentIndex < _parts.length - 1) {
         _skipToNext();
       }
     });
+
+    _player.positionStream.listen((_) => _broadcastState());
+    _player.playbackEventStream.listen((_) => _broadcastState());
+
+    _broadcastState();
   }
 
-  void _broadcast() {
+  void _broadcastState() {
     _statusController.add(
       PlaybackStatus(
         playing: _player.playing,
         position: _player.position,
         duration: _player.duration ?? Duration.zero,
         currentIndex: _currentIndex,
+        parts: _parts,
+        isInitialized: _parts.isNotEmpty && _currentIndex >= 0,
       ),
     );
+
+    if (_currentIndex >= 0 && _currentIndex < _parts.length) {
+      final part = _parts[_currentIndex];
+      mediaItem.add(
+        MediaItem(
+          id: part.id.toString(),
+          title: part.title ?? 'Часть ${_currentIndex + 1}',
+          artist: part.reader,
+          duration: part.duration,
+          artUri: part.coverUrl.isNotEmpty ? Uri.tryParse(part.coverUrl) : null,
+        ),
+      );
+    }
   }
 
-  void setQueue(List<AudioBookPart> parts, {int startIndex = 0}) {
-    _parts = parts;
-    _currentIndex = startIndex;
+  void setPlaylist(List<AudioBookPart> parts, {int startIndex = 0}) {
+    _parts = List.from(parts);
+    _currentIndex = startIndex.clamp(0, _parts.length - 1);
 
+    // Создаем MediaItem для каждой части для фонового воспроизведения
     final items = _parts.asMap().entries.map((entry) {
       final part = entry.value;
       return MediaItem(
@@ -66,14 +115,17 @@ class AudioPlayerService extends BaseAudioHandler {
         title: part.title ?? 'Часть ${entry.key + 1}',
         artist: part.reader,
         duration: part.duration,
-        artUri: part.coverUrl.isNotEmpty ? Uri.parse(part.coverUrl) : null,
+        artUri: part.coverUrl.isNotEmpty ? Uri.tryParse(part.coverUrl) : null,
       );
     }).toList();
 
     queue.add(items);
+
     if (_currentIndex >= 0 && _currentIndex < items.length) {
       mediaItem.add(items[_currentIndex]);
     }
+
+    _broadcastState();
   }
 
   Future<void> playPart(int index, {Duration? startPosition}) async {
@@ -82,34 +134,54 @@ class AudioPlayerService extends BaseAudioHandler {
     _currentIndex = index;
     final part = _parts[index];
 
-    mediaItem.add(
-      MediaItem(
-        id: part.id.toString(),
-        title: part.title ?? 'Часть ${index + 1}',
-        artist: part.reader,
-        duration: part.duration,
-        artUri: part.coverUrl.isNotEmpty ? Uri.parse(part.coverUrl) : null,
+    // Создаем MediaItem для этой части
+    final mediaItemForPart = MediaItem(
+      id: part.id.toString(),
+      title: part.title ?? 'Часть ${index + 1}',
+      artist: part.reader,
+      duration: part.duration,
+      artUri: part.coverUrl.isNotEmpty ? Uri.tryParse(part.coverUrl) : null,
+    );
+
+    // Устанавливаем источник с обязательным MediaItem тегом
+    await _player.setAudioSource(
+      AudioSource.uri(
+        Uri.parse(part.audioUrl),
+        tag: mediaItemForPart, // Обязательно!
       ),
     );
 
-    await _player.setAudioSource(AudioSource.uri(Uri.parse(part.audioUrl)));
     if (startPosition != null && startPosition.inSeconds > 0) {
       await _player.seek(startPosition);
     }
+
     await _player.play();
+    _broadcastState();
   }
 
   @override
-  Future<void> play() async => _player.play();
+  Future<void> play() async {
+    await _player.play();
+    _broadcastState();
+  }
 
   @override
-  Future<void> pause() async => _player.pause();
+  Future<void> pause() async {
+    await _player.pause();
+    _broadcastState();
+  }
 
   @override
-  Future<void> stop() async => _player.stop();
+  Future<void> stop() async {
+    await _player.stop();
+    _broadcastState();
+  }
 
   @override
-  Future<void> seek(Duration position) async => _player.seek(position);
+  Future<void> seek(Duration position) async {
+    await _player.seek(position);
+    _broadcastState();
+  }
 
   @override
   Future<void> skipToNext() async => _skipToNext();
@@ -119,13 +191,15 @@ class AudioPlayerService extends BaseAudioHandler {
 
   Future<void> _skipToNext() async {
     if (_currentIndex + 1 < _parts.length) {
-      await playPart(_currentIndex + 1);
+      _currentIndex++;
+      await playPart(_currentIndex);
     }
   }
 
   Future<void> _skipToPrevious() async {
     if (_currentIndex - 1 >= 0) {
-      await playPart(_currentIndex - 1);
+      _currentIndex--;
+      await playPart(_currentIndex);
     }
   }
 

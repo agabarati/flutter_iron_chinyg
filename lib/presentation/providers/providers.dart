@@ -134,3 +134,14 @@ final audioServiceProvider = FutureProvider<AudioPlayerService>((ref) async {
     ),
   );
 });
+
+// Синглтон сервиса
+final audioPlayerServiceProvider = Provider<AudioPlayerService>((ref) {
+  return AudioPlayerService.instance;
+});
+
+// Поток состояния плеера с начальным значением
+final playbackStatusProvider = StreamProvider<PlaybackStatus>((ref) {
+  final service = ref.watch(audioPlayerServiceProvider);
+  return service.statusStream;
+});
