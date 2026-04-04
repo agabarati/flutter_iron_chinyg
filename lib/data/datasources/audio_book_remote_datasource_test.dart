@@ -22,7 +22,6 @@ void main() {
   });
 
   group('getBooks', () {
-    const tBookId = 37;
     final tBookJson = [
       {
         "id": 37,
