@@ -23,24 +23,37 @@ class _TextViewTabState extends ConsumerState<TextViewTab> {
   String? _cachedCss;
   int _currentIndex = -1;
   String _currentText = '';
+  AudioPlayerService? _service;
 
   @override
   void initState() {
     super.initState();
-    final service = AudioPlayerService.instance;
-    _currentIndex = service.currentIndex;
-    _currentText = _getCurrentText(service);
+    _initService();
+  }
 
-    // Слушаем изменения в сервисе
-    service.statusStream.listen((status) {
-      if (mounted) {
-        final newText = _getCurrentText(service);
-        setState(() {
-          _currentIndex = service.currentIndex;
-          _currentText = newText;
-        });
-      }
-    });
+  Future<void> _initService() async {
+    final service = await AudioPlayerService.forBook(
+      widget.book.id,
+      widget.book.parts,
+    );
+
+    if (mounted) {
+      setState(() {
+        _service = service;
+        _currentIndex = service.currentIndex;
+        _currentText = _getCurrentText(service);
+      });
+
+      service.statusStream.listen((status) {
+        if (mounted) {
+          final newText = _getCurrentText(service);
+          setState(() {
+            _currentIndex = service.currentIndex;
+            _currentText = newText;
+          });
+        }
+      });
+    }
   }
 
   String _getCurrentText(AudioPlayerService service) {
@@ -68,7 +81,6 @@ class _TextViewTabState extends ConsumerState<TextViewTab> {
       print('Ошибка загрузки CSS: $e');
     }
 
-    // Если CSS не загрузился, возвращаем базовые стили
     return '''
       body {
         padding: 16px;
@@ -84,7 +96,9 @@ class _TextViewTabState extends ConsumerState<TextViewTab> {
   }
 
   void _showTranslationDialog(String initialWord) async {
-    final currentPart = _getCurrentPart();
+    if (_service == null) return;
+
+    final currentPart = _service!.currentPart;
     if (currentPart == null) return;
 
     final TextEditingController wordController = TextEditingController(
@@ -262,14 +276,6 @@ class _TextViewTabState extends ConsumerState<TextViewTab> {
     _showTranslationDialog(word);
   }
 
-  AudioBookPart? _getCurrentPart() {
-    final parts = widget.book.parts;
-    if (_currentIndex >= 0 && _currentIndex < parts.length) {
-      return parts[_currentIndex];
-    }
-    return null;
-  }
-
   TextSpan _buildTextWithSpans(String text) {
     final spans = <TextSpan>[];
     final wordPattern = RegExp(r'[\p{L}\p{N}]+', unicode: true);
@@ -310,6 +316,10 @@ class _TextViewTabState extends ConsumerState<TextViewTab> {
 
   @override
   Widget build(BuildContext context) {
+    if (_service == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
     final text = _currentText;
 
     if (text.isEmpty) {

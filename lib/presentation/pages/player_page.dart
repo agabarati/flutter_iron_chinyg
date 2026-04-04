@@ -1,6 +1,5 @@
 // lib/presentation/pages/player_page.dart
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
 import '../widgets/audio_player_widget.dart';
@@ -12,21 +11,25 @@ import '../../core/errors/failures.dart';
 import '../../data/repositories/audio_book_repository_impl.dart';
 import '../../data/datasources/audio_book_remote_datasource.dart';
 
-class PlayerPage extends ConsumerStatefulWidget {
+class PlayerPage extends StatefulWidget {
   final int bookId;
 
   const PlayerPage({super.key, required this.bookId});
 
   @override
-  ConsumerState<PlayerPage> createState() => _PlayerPageState();
+  State<PlayerPage> createState() => _PlayerPageState();
 }
 
-class _PlayerPageState extends ConsumerState<PlayerPage>
-    with TickerProviderStateMixin {
+class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   late TabController _tabController;
   AudioBook? _book;
   bool _isLoading = true;
   String? _error;
+
+  // Ключ для принудительного пересоздания виджетов при смене книги
+  Key _playerKey = const ValueKey('player');
+  Key _partsListKey = const ValueKey('parts_list');
+  Key _textViewKey = const ValueKey('text_view');
 
   @override
   void initState() {
@@ -56,15 +59,24 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
             _isLoading = false;
           });
         },
-        (book) {
+        (book) async {
+          // Останавливаем воспроизведение предыдущей книги
+          final currentService = AudioPlayerService.current;
+          if (currentService != null &&
+              currentService.bookId != widget.bookId) {
+            await currentService.stop();
+            // Удаляем старый сервис
+            AudioPlayerService.disposeForBook(currentService.bookId);
+          }
+
           setState(() {
             _book = book;
             _isLoading = false;
+            // Обновляем ключи для принудительного пересоздания виджетов
+            _playerKey = ValueKey('player_${widget.bookId}');
+            _partsListKey = ValueKey('parts_list_${widget.bookId}');
+            _textViewKey = ValueKey('text_view_${widget.bookId}');
           });
-
-          // После загрузки книги, устанавливаем плейлист в сервис
-          final service = AudioPlayerService.instance;
-          service.setPlaylist(book.parts, startIndex: 0);
         },
       );
     } catch (e) {
@@ -147,17 +159,14 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
       ),
       body: Column(
         children: [
-          // Аудиоплеер получает книгу напрямую
-          AudioPlayerWidget(book: _book!),
+          AudioPlayerWidget(key: _playerKey, book: _book!),
           const Divider(height: 1),
           Expanded(
             child: TabBarView(
               controller: _tabController,
               children: [
-                // Список частей получает книгу напрямую
-                PartsListTab(book: _book!),
-                // Текстовая вкладка получает книгу напрямую
-                TextViewTab(book: _book!),
+                PartsListTab(key: _partsListKey, book: _book!),
+                TextViewTab(key: _textViewKey, book: _book!),
               ],
             ),
           ),

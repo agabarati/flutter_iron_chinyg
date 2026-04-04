@@ -1,5 +1,6 @@
 // lib/data/repositories/audio_book_repository_impl.dart
 import 'package:dartz/dartz.dart';
+import 'package:flutter_iron_chinyg/domain/entities/audio_book_part_preview.dart';
 
 import '../../domain/repositories/audio_book_repository.dart';
 import '../../domain/entities/audio_book.dart';
@@ -143,6 +144,49 @@ class AudioBookRepositoryImpl implements AudioBookRepository {
       print('⚠️ Ошибка парсинга длительности "$length": $e');
     }
     return Duration.zero;
+  }
+
+  @override
+  Future<Either<Failure, List<AudioBookPartPreview>>> getAudioBookParts(
+    int bookId,
+  ) async {
+    try {
+      // Получаем информацию о книге (нужна папка для URL)
+      final bookModels = await remoteDataSource.getBooks();
+      final bookModel = bookModels.firstWhere(
+        (model) => model.id == bookId,
+        orElse: () => throw ServerFailure(message: 'Книга не найдена'),
+      );
+
+      // Загружаем части без текста (используем эндпоинт /parts/{bookId})
+      final partModels = await remoteDataSource.getBookParts(bookId);
+
+      final previews = partModels
+          .map(
+            (part) => AudioBookPartPreview(
+              id: part.id,
+              bookId: part.bookId,
+              title: part.title,
+              reader: part.reader,
+              audioUrl: _buildAudioUrl(part.audiofile, bookModel.folder),
+              duration: _parseDuration(part.length),
+              order: part.order,
+              dialect: part.dialect == 'IRN' ? Dialect.iron : Dialect.digor,
+            ),
+          )
+          .toList();
+
+      return Right(previews);
+    } on Failure catch (failure) {
+      return Left(failure);
+    } catch (e) {
+      return Left(ServerFailure(message: 'Ошибка загрузки частей: $e'));
+    }
+  }
+
+  String _buildAudioUrl(String audiofile, String folder) {
+    final fileName = audiofile.split('/').last;
+    return '${_mediaBaseUrl}audio/$folder/$fileName';
   }
 
   // ⚠️ Deprecated - оставляем для обратной совместимости, но не используем

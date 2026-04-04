@@ -1,41 +1,56 @@
 // lib/presentation/widgets/parts_list_tab.dart
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../services/audio_player_service.dart';
 import '../../domain/entities/audio_book.dart';
 
-class PartsListTab extends ConsumerStatefulWidget {
+class PartsListTab extends StatefulWidget {
   final AudioBook book;
 
   const PartsListTab({super.key, required this.book});
 
   @override
-  ConsumerState<PartsListTab> createState() => _PartsListTabState();
+  State<PartsListTab> createState() => _PartsListTabState();
 }
 
-class _PartsListTabState extends ConsumerState<PartsListTab> {
+class _PartsListTabState extends State<PartsListTab> {
+  AudioPlayerService? _service;
   int _currentIndex = -1;
 
   @override
   void initState() {
     super.initState();
-    final service = AudioPlayerService.instance;
-    _currentIndex = service.currentIndex;
+    _initService();
+  }
 
-    // Слушаем изменения в сервисе
-    service.statusStream.listen((status) {
-      if (mounted) {
-        setState(() {
-          _currentIndex = service.currentIndex;
-        });
-      }
-    });
+  Future<void> _initService() async {
+    final service = await AudioPlayerService.forBook(
+      widget.book.id,
+      widget.book.parts,
+    );
+
+    if (mounted) {
+      setState(() {
+        _service = service;
+        _currentIndex = service.currentIndex;
+      });
+
+      service.statusStream.listen((status) {
+        if (mounted) {
+          setState(() {
+            _currentIndex = status.currentIndex;
+          });
+        }
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_service == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
     final parts = widget.book.parts;
-    final service = AudioPlayerService.instance;
 
     if (parts.isEmpty) {
       return const Center(child: Text('Нет доступных частей'));
@@ -79,7 +94,7 @@ class _PartsListTabState extends ConsumerState<PartsListTab> {
                 : null,
             selected: isSelected,
             onTap: () {
-              service.playPart(index);
+              _service?.playPart(index);
             },
           ),
         );

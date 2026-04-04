@@ -1,5 +1,6 @@
 // lib/domain/repositories/audio_book_repository.dart
 import 'package:dartz/dartz.dart';
+import 'package:flutter_iron_chinyg/domain/entities/audio_book_part_preview.dart';
 import '../entities/audio_book_preview.dart';
 import '../entities/audio_book.dart';
 import '../../core/errors/failures.dart';
@@ -12,6 +13,10 @@ abstract class AudioBookRepository {
   /// 📚 Получить полную информацию о книге с частями (для экрана плеера)
   /// Загружает данные из /parts_with_text/{bookId}
   Future<Either<Failure, AudioBook>> getAudioBookDetails(int bookId);
+
+  Future<Either<Failure, List<AudioBookPartPreview>>> getAudioBookParts(
+    int bookId,
+  );
 
   /// ⚠️ Устаревшие методы (оставлены для обратной совместимости)
   @Deprecated('Используйте getAudioBookPreviews() для списка')
