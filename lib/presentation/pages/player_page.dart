@@ -1,5 +1,6 @@
 // lib/presentation/pages/player_page.dart
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
 import '../widgets/audio_player_widget.dart';
@@ -7,6 +8,7 @@ import '../widgets/parts_list_tab.dart';
 import '../widgets/text_view_tab.dart';
 import '../../services/audio_player_service.dart';
 import '../../domain/entities/audio_book.dart';
+import '../../core/errors/failures.dart';
 import '../../data/repositories/audio_book_repository_impl.dart';
 import '../../data/datasources/audio_book_remote_datasource.dart';
 
@@ -24,16 +26,13 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   AudioBook? _book;
   bool _isLoading = true;
   String? _error;
-
-  // Ключ для принудительного пересоздания виджетов при смене книги
-  Key _playerKey = const ValueKey('player');
-  Key _partsListKey = const ValueKey('parts_list');
-  Key _textViewKey = const ValueKey('text_view');
+  late DraggableScrollableController _draggableController;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _draggableController = DraggableScrollableController();
     _loadBook();
   }
 
@@ -58,23 +57,10 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
             _isLoading = false;
           });
         },
-        (book) async {
-          // Останавливаем воспроизведение предыдущей книги
-          final currentService = AudioPlayerService.current;
-          if (currentService != null &&
-              currentService.bookId != widget.bookId) {
-            await currentService.stop();
-            // Удаляем старый сервис
-            AudioPlayerService.disposeForBook(currentService.bookId);
-          }
-
+        (book) {
           setState(() {
             _book = book;
             _isLoading = false;
-            // Обновляем ключи для принудительного пересоздания виджетов
-            _playerKey = ValueKey('player_${widget.bookId}');
-            _partsListKey = ValueKey('parts_list_${widget.bookId}');
-            _textViewKey = ValueKey('text_view_${widget.bookId}');
           });
         },
       );
@@ -89,6 +75,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   @override
   void dispose() {
     _tabController.dispose();
+    _draggableController.dispose();
     super.dispose();
   }
 
@@ -148,26 +135,83 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     return Scaffold(
       appBar: AppBar(
         title: Text(_book!.title),
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(icon: Icon(Icons.list), text: 'Части'),
-            Tab(icon: Icon(Icons.text_fields), text: 'Текст'),
-          ],
-        ),
-      ),
-      body: Column(
-        children: [
-          AudioPlayerWidget(key: _playerKey, book: _book!),
-          const Divider(height: 1),
-          Expanded(
-            child: TabBarView(
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(48),
+          child: Container(
+            color: Theme.of(context).primaryColor,
+            child: TabBar(
               controller: _tabController,
-              children: [
-                PartsListTab(key: _partsListKey, book: _book!),
-                TextViewTab(key: _textViewKey, book: _book!),
+              indicatorColor: Colors.white,
+              indicatorWeight: 3,
+              labelColor: Colors.white,
+              unselectedLabelColor: Colors.white.withOpacity(0.6),
+              tabs: const [
+                Tab(text: 'НОМХЫГЪД'),
+                Tab(text: 'КÆСЫН'),
               ],
             ),
+          ),
+        ),
+      ),
+      body: Stack(
+        children: [
+          // Основной контент (вкладки)
+          TabBarView(
+            controller: _tabController,
+            children: [
+              PartsListTab(book: _book!),
+              TextViewTab(book: _book!),
+            ],
+          ),
+
+          // Draggable плеер внизу
+          DraggableScrollableSheet(
+            controller: _draggableController,
+            initialChildSize: 0.23,
+            minChildSize: 0.12,
+            maxChildSize: 0.23,
+            snap: true,
+            snapSizes: const [0.12, 0.23],
+            builder: (context, scrollController) {
+              return Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(16),
+                    topRight: Radius.circular(16),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.15),
+                      blurRadius: 12,
+                      offset: const Offset(0, -3),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    // Шторка
+                    Container(
+                      margin: const EdgeInsets.only(top: 10),
+                      width: 50,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[400],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    // Плеер
+                    Expanded(
+                      child: SingleChildScrollView(
+                        controller: scrollController,
+                        physics: const ClampingScrollPhysics(),
+                        child: AudioPlayerWidget(book: _book!),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
         ],
       ),

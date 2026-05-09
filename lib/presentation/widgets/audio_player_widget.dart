@@ -22,7 +22,6 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
   }
 
   Future<void> _initService() async {
-    // Создаем или получаем сервис для этой книги
     final service = await AudioPlayerService.forBook(
       widget.book.id,
       widget.book.parts,
@@ -33,7 +32,6 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
         _service = service;
       });
 
-      // Подписываемся на изменения
       _service!.statusStream.listen((status) {
         if (mounted) {
           setState(() {});
@@ -50,15 +48,13 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
   @override
   Widget build(BuildContext context) {
     if (_service == null) {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        color: Colors.grey[100],
-        child: const Center(child: CircularProgressIndicator()),
+      return const Padding(
+        padding: EdgeInsets.all(20),
+        child: Center(child: CircularProgressIndicator()),
       );
     }
 
     final hasPart = _service!.currentIndex >= 0 && _service!.parts.isNotEmpty;
-    final currentPart = _service!.currentPart;
     final duration = _service!.currentDuration;
     final position = _service!.currentPosition;
     final isPlaying = _service!.isPlaying;
@@ -67,43 +63,47 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
         : 0.0;
     final partsCount = widget.book.parts.length;
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      color: Colors.grey[100],
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            hasPart
-                ? (currentPart!.title ?? 'Часть ${_service!.currentIndex + 1}')
-                : 'Выберите часть',
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+          // Прогресс-бар со временем
+          Padding(
+            padding: const EdgeInsets.only(top: 8, bottom: 4),
+            child: Row(
+              children: [
+                Text(
+                  _formatDuration(position),
+                  style: const TextStyle(fontSize: 12),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Slider(
+                    value: progress,
+                    activeColor: Theme.of(context).primaryColor,
+                    inactiveColor: Colors.grey[300],
+                    onChanged: hasPart
+                        ? (value) {
+                            final newPosition = Duration(
+                              seconds: (value * duration.inSeconds).round(),
+                            );
+                            _service!.seek(newPosition);
+                          }
+                        : null,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  _formatDuration(duration),
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: 8),
 
-          Slider(
-            value: progress,
-            onChanged: hasPart
-                ? (value) {
-                    final newPosition = Duration(
-                      seconds: (value * duration.inSeconds).round(),
-                    );
-                    _service!.seek(newPosition);
-                  }
-                : null,
-          ),
-
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(_formatDuration(position)),
-              Text(_formatDuration(duration)),
-            ],
-          ),
-          const SizedBox(height: 8),
-
+          // Кнопки управления
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -123,7 +123,7 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
                 tooltip: 'Назад 10 секунд',
               ),
               Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16),
+                margin: const EdgeInsets.symmetric(horizontal: 12),
                 child: IconButton(
                   icon: Icon(
                     isPlaying
@@ -154,6 +154,7 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
               ),
             ],
           ),
+          SizedBox(height: 8),
         ],
       ),
     );

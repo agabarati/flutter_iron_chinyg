@@ -47,7 +47,7 @@ class AudioBookRepositoryImpl implements AudioBookRepository {
           .toList();
 
       // 3. Сортируем по порядку
-      previews.sort((a, b) => a.order.compareTo(b.order));
+      // previews.sort((a, b) => a.order.compareTo(b.order));
 
       return Right(previews);
     } on Failure catch (failure) {
