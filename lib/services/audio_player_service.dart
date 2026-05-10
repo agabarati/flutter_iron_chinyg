@@ -1,4 +1,3 @@
-// lib/services/audio_player_service.dart
 import 'dart:async';
 import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
@@ -13,7 +12,6 @@ class PlaybackStatus {
   final List<AudioBookPart> parts;
   final bool isInitialized;
   final int bookId;
-
   PlaybackStatus({
     required this.playing,
     required this.position,
@@ -23,7 +21,6 @@ class PlaybackStatus {
     required this.isInitialized,
     required this.bookId,
   });
-
   static PlaybackStatus empty() => PlaybackStatus(
     playing: false,
     position: Duration.zero,
@@ -36,100 +33,47 @@ class PlaybackStatus {
 }
 
 class AudioPlayerService extends BaseAudioHandler {
-  // Статический словарь для хранения экземпляров по bookId
-  static final Map<int, AudioPlayerService> _instances = {};
+  // Единственный экземпляр
+  static final AudioPlayerService _instance = AudioPlayerService._internal();
+  static AudioPlayerService get instance => _instance;
 
-  // Получить или создать экземпляр для конкретной книги
-  static Future<AudioPlayerService> forBook(
-    int bookId,
-    List<AudioBookPart> parts,
-  ) async {
-    if (_instances.containsKey(bookId)) {
-      return _instances[bookId]!;
-    }
+  // Состояние текущей книги
+  int _bookId = -1;
+  List<AudioBookPart> _parts = [];
+  int _currentIndex = -1;
+  bool _isAudioSourceSet = false;
 
-    final instance = AudioPlayerService._internal(bookId, parts);
-    _instances[bookId] = instance;
-    await instance._init();
-    return instance;
-  }
-
-  // Получить текущий активный экземпляр (для UI)
-  static AudioPlayerService? get current {
-    if (_instances.isEmpty) return null;
-    return _instances.values.last;
-  }
-
-  // Удалить экземпляр для книги (при выходе из плеера)
-  static void disposeForBook(int bookId) {
-    final instance = _instances.remove(bookId);
-    if (instance != null) {
-      instance.stop();
-      instance._player.dispose();
-    }
-  }
-
-  // Публичный конструктор для AudioService.init()
-  // Не используйте его напрямую. Используйте AudioPlayerService.forBook()
-  AudioPlayerService()
-    : bookId = -1,
-      parts = [],
-      _player = AudioPlayer(),
-      _currentIndex = 0,
-      _isAudioSourceSet = false;
-
-  final int bookId;
-  final List<AudioBookPart> parts;
-  final AudioPlayer _player;
-  int _currentIndex;
-  bool _isAudioSourceSet;
-
+  final AudioPlayer _player = AudioPlayer();
   final _statusController = StreamController<PlaybackStatus>.broadcast();
   Stream<PlaybackStatus> get statusStream => _statusController.stream;
 
+  // Публичные геттеры
   bool get isPlaying => _player.playing;
   Duration get currentPosition => _player.position;
   Duration get currentDuration => _player.duration ?? Duration.zero;
   int get currentIndex => _currentIndex;
+  int get bookId => _bookId;
+  List<AudioBookPart> get parts => List.unmodifiable(_parts);
   AudioBookPart? get currentPart =>
-      _currentIndex >= 0 && _currentIndex < parts.length
-      ? parts[_currentIndex]
+      _currentIndex >= 0 && _currentIndex < _parts.length
+      ? _parts[_currentIndex]
       : null;
 
-  AudioPlayerService._internal(this.bookId, this.parts)
-    : _player = AudioPlayer(),
-      _currentIndex = 0,
-      _isAudioSourceSet = false;
+  // Приватный конструктор
+  AudioPlayerService._internal() {
+    _init();
+  }
 
   Future<void> _init() async {
-    if (parts.isEmpty) return;
-
-    // Настраиваем плейлист для фонового воспроизведения
-    final items = parts.asMap().entries.map((entry) {
-      final part = entry.value;
-      return MediaItem(
-        id: part.id.toString(),
-        title: part.title ?? 'Часть ${entry.key + 1}',
-        artist: part.reader,
-        duration: part.duration,
-        artUri: part.coverUrl.isNotEmpty ? Uri.tryParse(part.coverUrl) : null,
-      );
-    }).toList();
-
-    queue.add(items);
-
-    // Подписываемся на события плеера
     _player.playerStateStream.listen((state) {
       _broadcastState();
       if (state.processingState == ProcessingState.completed &&
-          _currentIndex < parts.length - 1) {
+          _currentIndex < _parts.length - 1) {
         _skipToNext();
       }
     });
-
     _player.positionStream.listen((_) => _broadcastState());
     _player.playbackEventStream.listen((_) => _broadcastState());
-
     _broadcastState();
   }
 
@@ -140,14 +84,13 @@ class AudioPlayerService extends BaseAudioHandler {
         position: _player.position,
         duration: _player.duration ?? Duration.zero,
         currentIndex: _currentIndex,
-        parts: parts,
-        isInitialized: parts.isNotEmpty,
-        bookId: bookId,
+        parts: _parts,
+        isInitialized: _parts.isNotEmpty && _currentIndex >= 0,
+        bookId: _bookId,
       ),
     );
-
-    if (_currentIndex >= 0 && _currentIndex < parts.length) {
-      final part = parts[_currentIndex];
+    if (_currentIndex >= 0 && _currentIndex < _parts.length) {
+      final part = _parts[_currentIndex];
       mediaItem.add(
         MediaItem(
           id: part.id.toString(),
@@ -160,12 +103,43 @@ class AudioPlayerService extends BaseAudioHandler {
     }
   }
 
+  /// Полностью сбросить плеер и переключиться на новую книгу
+  Future<void> switchToBook(int bookId, List<AudioBookPart> parts) async {
+    if (_bookId == bookId) return; // уже эта книга – ничего не делаем
+    await _player.stop();
+    await _player.seek(Duration.zero); // <-- ОБНУЛЯЕМ ПОЗИЦИЮ
+    _bookId = bookId;
+    _parts = List.from(parts);
+    _currentIndex = 0;
+    _isAudioSourceSet = false;
+
+    final items = _parts
+        .map(
+          (part) => MediaItem(
+            id: part.id.toString(),
+            title: part.title ?? 'Часть',
+            artist: part.reader,
+            duration: part.duration,
+            artUri: part.coverUrl.isNotEmpty
+                ? Uri.tryParse(part.coverUrl)
+                : null,
+          ),
+        )
+        .toList();
+    queue.add(items);
+    if (_currentIndex >= 0 && _currentIndex < items.length) {
+      mediaItem.add(items[_currentIndex]);
+    } else {
+      mediaItem.add(null);
+    }
+    _broadcastState();
+  }
+
+  /// Загрузить и воспроизвести конкретную часть (по индексу)
   Future<void> playPart(int index, {Duration? startPosition}) async {
-    if (index < 0 || index >= parts.length) return;
-
+    if (index < 0 || index >= _parts.length) return;
     _currentIndex = index;
-    final part = parts[index];
-
+    final part = _parts[index];
     final mediaItemForPart = MediaItem(
       id: part.id.toString(),
       title: part.title ?? 'Часть ${index + 1}',
@@ -173,25 +147,22 @@ class AudioPlayerService extends BaseAudioHandler {
       duration: part.duration,
       artUri: part.coverUrl.isNotEmpty ? Uri.tryParse(part.coverUrl) : null,
     );
-
     await _player.setAudioSource(
       AudioSource.uri(Uri.parse(part.audioUrl), tag: mediaItemForPart),
     );
     _isAudioSourceSet = true;
-
     if (startPosition != null && startPosition.inSeconds > 0) {
       await _player.seek(startPosition);
     }
-
     await _player.play();
     _broadcastState();
   }
 
+  @override
   Future<void> play() async {
-    // Если аудио не загружено, загружаем текущую часть
     if (!_isAudioSourceSet &&
         _currentIndex >= 0 &&
-        _currentIndex < parts.length) {
+        _currentIndex < _parts.length) {
       await playPart(_currentIndex);
     } else {
       await _player.play();
@@ -199,34 +170,35 @@ class AudioPlayerService extends BaseAudioHandler {
     _broadcastState();
   }
 
+  @override
   Future<void> pause() async {
     await _player.pause();
     _broadcastState();
   }
 
+  @override
   Future<void> stop() async {
     await _player.stop();
     _broadcastState();
   }
 
+  @override
   Future<void> seek(Duration position) async {
     await _player.seek(position);
     _broadcastState();
   }
 
+  @override
   Future<void> skipToNext() async => _skipToNext();
+  @override
   Future<void> skipToPrevious() async => _skipToPrevious();
 
   Future<void> _skipToNext() async {
-    if (_currentIndex + 1 < parts.length) {
-      await playPart(_currentIndex + 1);
-    }
+    if (_currentIndex + 1 < _parts.length) await playPart(_currentIndex + 1);
   }
 
   Future<void> _skipToPrevious() async {
-    if (_currentIndex - 1 >= 0) {
-      await playPart(_currentIndex - 1);
-    }
+    if (_currentIndex - 1 >= 0) await playPart(_currentIndex - 1);
   }
 
   void dispose() {

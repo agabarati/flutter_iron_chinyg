@@ -1,11 +1,9 @@
-// lib/presentation/widgets/parts_list_tab.dart
 import 'package:flutter/material.dart';
 import '../../services/audio_player_service.dart';
 import '../../domain/entities/audio_book.dart';
 
 class PartsListTab extends StatefulWidget {
   final AudioBook book;
-
   const PartsListTab({super.key, required this.book});
 
   @override
@@ -13,45 +11,21 @@ class PartsListTab extends StatefulWidget {
 }
 
 class _PartsListTabState extends State<PartsListTab> {
-  AudioPlayerService? _service;
+  late final AudioPlayerService _service = AudioPlayerService.instance;
   int _currentIndex = -1;
 
   @override
   void initState() {
     super.initState();
-    _initService();
-  }
-
-  Future<void> _initService() async {
-    final service = await AudioPlayerService.forBook(
-      widget.book.id,
-      widget.book.parts,
-    );
-
-    if (mounted) {
-      setState(() {
-        _service = service;
-        _currentIndex = service.currentIndex;
-      });
-
-      service.statusStream.listen((status) {
-        if (mounted) {
-          setState(() {
-            _currentIndex = status.currentIndex;
-          });
-        }
-      });
-    }
+    _currentIndex = _service.currentIndex;
+    _service.statusStream.listen((_) {
+      if (mounted) setState(() => _currentIndex = _service.currentIndex);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_service == null) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
     final parts = widget.book.parts;
-
     if (parts.isEmpty) {
       return const Center(child: Text('Нет доступных частей'));
     }
@@ -94,7 +68,7 @@ class _PartsListTabState extends State<PartsListTab> {
                 : null,
             selected: isSelected,
             onTap: () {
-              _service?.playPart(index);
+              _service.playPart(index);
             },
           ),
         );

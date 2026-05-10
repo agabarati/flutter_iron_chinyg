@@ -1,11 +1,9 @@
-// lib/presentation/widgets/audio_player_widget.dart
 import 'package:flutter/material.dart';
 import '../../services/audio_player_service.dart';
 import '../../domain/entities/audio_book.dart';
 
 class AudioPlayerWidget extends StatefulWidget {
   final AudioBook book;
-
   const AudioPlayerWidget({super.key, required this.book});
 
   @override
@@ -13,51 +11,22 @@ class AudioPlayerWidget extends StatefulWidget {
 }
 
 class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
-  AudioPlayerService? _service;
+  late final AudioPlayerService _service = AudioPlayerService.instance;
 
   @override
   void initState() {
     super.initState();
-    _initService();
-  }
-
-  Future<void> _initService() async {
-    final service = await AudioPlayerService.forBook(
-      widget.book.id,
-      widget.book.parts,
-    );
-
-    if (mounted) {
-      setState(() {
-        _service = service;
-      });
-
-      _service!.statusStream.listen((status) {
-        if (mounted) {
-          setState(() {});
-        }
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    super.dispose();
+    _service.statusStream.listen((_) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_service == null) {
-      return const Padding(
-        padding: EdgeInsets.all(20),
-        child: Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    final hasPart = _service!.currentIndex >= 0 && _service!.parts.isNotEmpty;
-    final duration = _service!.currentDuration;
-    final position = _service!.currentPosition;
-    final isPlaying = _service!.isPlaying;
+    final hasPart = _service.currentIndex >= 0 && _service.parts.isNotEmpty;
+    final duration = _service.currentDuration;
+    final position = _service.currentPosition;
+    final isPlaying = _service.isPlaying;
     final progress = duration.inSeconds > 0
         ? position.inSeconds / duration.inSeconds
         : 0.0;
@@ -68,7 +37,6 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Прогресс-бар со временем
           Padding(
             padding: const EdgeInsets.only(top: 8, bottom: 4),
             child: Row(
@@ -85,10 +53,11 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
                     inactiveColor: Colors.grey[300],
                     onChanged: hasPart
                         ? (value) {
-                            final newPosition = Duration(
-                              seconds: (value * duration.inSeconds).round(),
+                            _service.seek(
+                              Duration(
+                                seconds: (value * duration.inSeconds).round(),
+                              ),
                             );
-                            _service!.seek(newPosition);
                           }
                         : null,
                   ),
@@ -101,16 +70,14 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
               ],
             ),
           ),
-          SizedBox(height: 8),
-
-          // Кнопки управления
+          const SizedBox(height: 8),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               IconButton(
                 icon: const Icon(Icons.skip_previous, size: 32),
                 onPressed: hasPart && partsCount > 1
-                    ? _service!.skipToPrevious
+                    ? _service.skipToPrevious
                     : null,
                 tooltip: 'Предыдущая часть',
               ),
@@ -118,7 +85,7 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
                 icon: const Icon(Icons.replay_10, size: 32),
                 onPressed: hasPart
                     ? () =>
-                          _service!.seek(position - const Duration(seconds: 10))
+                          _service.seek(position - const Duration(seconds: 10))
                     : null,
                 tooltip: 'Назад 10 секунд',
               ),
@@ -132,7 +99,7 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
                     size: 56,
                   ),
                   onPressed: hasPart
-                      ? () => isPlaying ? _service!.pause() : _service!.play()
+                      ? () => isPlaying ? _service.pause() : _service.play()
                       : null,
                   tooltip: isPlaying ? 'Пауза' : 'Воспроизвести',
                 ),
@@ -141,20 +108,19 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
                 icon: const Icon(Icons.forward_10, size: 32),
                 onPressed: hasPart
                     ? () =>
-                          _service!.seek(position + const Duration(seconds: 10))
+                          _service.seek(position + const Duration(seconds: 10))
                     : null,
                 tooltip: 'Вперед 10 секунд',
               ),
               IconButton(
                 icon: const Icon(Icons.skip_next, size: 32),
                 onPressed: hasPart && partsCount > 1
-                    ? _service!.skipToNext
+                    ? _service.skipToNext
                     : null,
                 tooltip: 'Следующая часть',
               ),
             ],
           ),
-          SizedBox(height: 8),
         ],
       ),
     );

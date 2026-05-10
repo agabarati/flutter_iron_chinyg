@@ -1,6 +1,4 @@
-// lib/presentation/pages/player_page.dart
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
 import '../widgets/audio_player_widget.dart';
@@ -14,7 +12,6 @@ import '../../data/datasources/audio_book_remote_datasource.dart';
 
 class PlayerPage extends StatefulWidget {
   final int bookId;
-
   const PlayerPage({super.key, required this.bookId});
 
   @override
@@ -47,7 +44,6 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       final repository = AudioBookRepositoryImpl(
         remoteDataSource: remoteDataSource,
       );
-
       final result = await repository.getAudioBookDetails(widget.bookId);
 
       result.fold(
@@ -57,11 +53,22 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
             _isLoading = false;
           });
         },
-        (book) {
+        (book) async {
+          final service = AudioPlayerService.instance;
+          final isDifferentBook = service.bookId != widget.bookId;
+
           setState(() {
             _book = book;
             _isLoading = false;
           });
+
+          if (isDifferentBook) {
+            // Переключаем плеер на новую книгу
+            await service.switchToBook(widget.bookId, book.parts);
+            // Останавливаем, чтобы не играло автоматически
+            await service.stop();
+          }
+          // Если та же книга – ничего не делаем, воспроизведение продолжается
         },
       );
     } catch (e) {
@@ -87,7 +94,6 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
         body: const Center(child: CircularProgressIndicator()),
       );
     }
-
     if (_error != null) {
       return Scaffold(
         appBar: AppBar(title: const Text('Аудиокнига')),
@@ -124,7 +130,6 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
         ),
       );
     }
-
     if (_book == null) {
       return Scaffold(
         appBar: AppBar(title: const Text('Аудиокнига')),
@@ -155,7 +160,6 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       ),
       body: Stack(
         children: [
-          // Основной контент (вкладки)
           TabBarView(
             controller: _tabController,
             children: [
@@ -163,11 +167,9 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
               TextViewTab(book: _book!),
             ],
           ),
-
-          // Draggable плеер внизу
           DraggableScrollableSheet(
             controller: _draggableController,
-            initialChildSize: 0.23,
+            initialChildSize: 0.12,
             minChildSize: 0.12,
             maxChildSize: 0.23,
             snap: true,
@@ -190,7 +192,6 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
                 ),
                 child: Column(
                   children: [
-                    // Шторка
                     Container(
                       margin: const EdgeInsets.only(top: 10),
                       width: 50,
@@ -200,12 +201,14 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
-                    // Плеер
                     Expanded(
                       child: SingleChildScrollView(
                         controller: scrollController,
                         physics: const ClampingScrollPhysics(),
-                        child: AudioPlayerWidget(book: _book!),
+                        child: AudioPlayerWidget(
+                          key: ValueKey(_book!.id),
+                          book: _book!,
+                        ),
                       ),
                     ),
                   ],
