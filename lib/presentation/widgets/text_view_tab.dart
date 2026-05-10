@@ -143,7 +143,7 @@ class _TextViewTabState extends ConsumerState<TextViewTab>
                       child: state.isLoading
                           ? const Center(child: CircularProgressIndicator())
                           : state.result.isEmpty
-                          ? const Center(child: Text('Перевод не найден'))
+                          ? const Center(child: Text('Тӕлмац не ссардӕуыд'))
                           : FutureBuilder<String>(
                               future: _getCssStyles(),
                               builder: (context, cssSnapshot) {
@@ -176,7 +176,7 @@ class _TextViewTabState extends ConsumerState<TextViewTab>
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(dialogContext),
-                  child: const Text('Закрыть'),
+                  child: const Text('Сæхгæнын'),
                 ),
               ],
             );
@@ -208,7 +208,7 @@ class _TextViewTabState extends ConsumerState<TextViewTab>
       _translationCache[word] = html;
       dialogState.value = (isLoading: false, result: html);
     } catch (e) {
-      dialogState.value = (isLoading: false, result: 'Ошибка: ${e.toString()}');
+      dialogState.value = (isLoading: false, result: 'Рæдыд: ${e.toString()}');
     }
   }
 
@@ -228,21 +228,31 @@ class _TextViewTabState extends ConsumerState<TextViewTab>
             TextSpan(
               text: word,
               style: const TextStyle(
-                color: Colors.blue,
-                decoration: TextDecoration.underline,
+                color: Color(0xFF333333), // тёмно-серый
+                decoration: TextDecoration.none,
               ),
               recognizer: TapGestureRecognizer()
                 ..onTap = () => _onWordTap(word),
             ),
           );
         } else {
-          spans.add(TextSpan(text: word));
+          spans.add(
+            TextSpan(
+              text: word,
+              style: const TextStyle(color: Color(0xFF333333)),
+            ),
+          );
         }
         pos += word.length;
       }
       final sepMatch = separatorPattern.matchAsPrefix(text, pos);
       if (sepMatch != null) {
-        spans.add(TextSpan(text: sepMatch.group(0)!));
+        spans.add(
+          TextSpan(
+            text: sepMatch.group(0)!,
+            style: const TextStyle(color: Color(0xFF333333)),
+          ),
+        );
         pos += sepMatch.group(0)!.length;
       }
     }
@@ -259,7 +269,11 @@ class _TextViewTabState extends ConsumerState<TextViewTab>
       padding: const EdgeInsets.all(16),
       child: SelectableText.rich(
         _buildTextWithSpans(_currentText),
-        style: const TextStyle(fontSize: 16, height: 1.5, color: Colors.black),
+        style: const TextStyle(
+          fontSize: 16,
+          height: 1.5,
+          color: Color(0xFF333333),
+        ), // базовый стиль для всего текста
       ),
     );
   }

@@ -33,7 +33,8 @@ class _HomePageState extends ConsumerState<HomePage> {
         ],
       ),
       body: previewsAsync.when(
-        loading: () => const LoadingWidget(message: 'Загрузка списка книг...'),
+        loading: () =>
+            const LoadingWidget(message: 'Чингуыты номхыгъд æвгæд цæуы...'),
         data: (previews) {
           if (previews.isEmpty) {
             return _buildEmptyState();
