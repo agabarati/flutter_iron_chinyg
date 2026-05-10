@@ -6,7 +6,6 @@ import '../widgets/parts_list_tab.dart';
 import '../widgets/text_view_tab.dart';
 import '../../services/audio_player_service.dart';
 import '../../domain/entities/audio_book.dart';
-import '../../core/errors/failures.dart';
 import '../../data/repositories/audio_book_repository_impl.dart';
 import '../../data/datasources/audio_book_remote_datasource.dart';
 
@@ -149,7 +148,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
               indicatorColor: Colors.white,
               indicatorWeight: 3,
               labelColor: Colors.white,
-              unselectedLabelColor: Colors.white.withOpacity(0.6),
+              unselectedLabelColor: Colors.white.withAlpha(150),
               tabs: const [
                 Tab(text: 'НОМХЫГЪД'),
                 Tab(text: 'КÆСЫН'),

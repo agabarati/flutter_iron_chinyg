@@ -7,7 +7,6 @@ import '../providers/providers.dart';
 import '../widgets/loading_widget.dart';
 import 'player_page.dart';
 import '../../domain/entities/audio_book_preview.dart';
-import '../../core/errors/failures.dart';
 
 class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
