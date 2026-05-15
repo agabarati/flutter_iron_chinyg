@@ -168,11 +168,11 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
           ),
           DraggableScrollableSheet(
             controller: _draggableController,
-            initialChildSize: 0.23,
+            initialChildSize: 0.25,
             minChildSize: 0.12,
-            maxChildSize: 0.23,
+            maxChildSize: 0.25,
             snap: true,
-            snapSizes: const [0.12, 0.23],
+            snapSizes: const [0.12, 0.25],
             builder: (context, scrollController) {
               return Container(
                 decoration: BoxDecoration(
