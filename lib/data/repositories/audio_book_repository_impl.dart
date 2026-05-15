@@ -1,36 +1,26 @@
-// lib/data/repositories/audio_book_repository_impl.dart
 import 'package:dartz/dartz.dart';
 import 'package:flutter_iron_chinyg/domain/entities/audio_book_part_preview.dart';
-
 import '../../domain/repositories/audio_book_repository.dart';
 import '../../domain/entities/audio_book.dart';
 import '../../domain/entities/audio_book_preview.dart';
 import '../../domain/entities/audio_book_part.dart';
 import '../../core/errors/failures.dart';
 import '../datasources/audio_book_remote_datasource.dart';
+import '../models/audio_book_model.dart';
 import '../models/audio_book_part_model.dart';
 
 /// Реализация репозитория аудиокниг
 class AudioBookRepositoryImpl implements AudioBookRepository {
   final AudioBookRemoteDataSource remoteDataSource;
-
-  // Базовый URL для медиа-файлов
   static const String _mediaBaseUrl = 'https://audiobooks.ironapps.ru/media/';
 
   AudioBookRepositoryImpl({required this.remoteDataSource});
 
-  // ⚡ БЫСТРЫЙ МЕТОД для главного экрана - только превью книг, БЕЗ загрузки частей
+  // ==================== БЫСТРЫЙ МЕТОД ДЛЯ СПИСКА КНИГ ====================
   @override
   Future<Either<Failure, List<AudioBookPreview>>> getAudioBookPreviews() async {
     try {
-      // 1. Получаем только список книг (без частей)
       final bookModels = await remoteDataSource.getBooks();
-
-      if (bookModels.isEmpty) {
-        return const Right([]);
-      }
-
-      // 2. Преобразуем в Preview (только данные из JSON)
       final previews = bookModels
           .where((model) => model.published)
           .map(
@@ -45,162 +35,138 @@ class AudioBookRepositoryImpl implements AudioBookRepository {
             ),
           )
           .toList();
-
-      // 3. Сортируем по порядку
       // previews.sort((a, b) => a.order.compareTo(b.order));
-
       return Right(previews);
-    } on Failure catch (failure) {
-      return Left(failure);
     } catch (e) {
-      return Left(ServerFailure(message: 'Неизвестная ошибка: $e'));
+      return Left(ServerFailure(message: 'Ошибка загрузки списка книг: $e'));
     }
   }
 
-  // 📚 ПОЛНЫЙ МЕТОД для экрана плеера - загружает книгу со всеми частями
+  // ==================== ОПТИМИЗИРОВАННЫЙ МЕТОД ДЛЯ ЭКРАНА ПЛЕЕРА ====================
   @override
   Future<Either<Failure, AudioBook>> getAudioBookDetails(int id) async {
     try {
-      // 1. Получаем информацию о книге
-      final bookModels = await remoteDataSource.getBooks();
+      // 1. Получаем полные данные одним запросом
+      final data = await remoteDataSource.getFullAudioBook(id);
 
-      final bookModel = bookModels.firstWhere(
-        (model) => model.id == id && model.published,
-        orElse: () => throw ServerFailure(message: 'Книга с ID $id не найдена'),
-      );
+      // 2. Парсим данные о книге
+      final audiobook = data['audiobook'] as Map<String, dynamic>;
+      final partsJson = data['audioparts'] as List;
 
-      // 2. Загружаем части ТОЛЬКО для этой книги
-      final partModels = await remoteDataSource.getBookPartsWithText(id);
+      // 3. Преобразуем каждую часть в бизнес-сущность
+      final List<AudioBookPart> parts = partsJson.map((partMap) {
+        return _createAudioBookPartFromJson(
+          partMap,
+          audiobook['folder'] as String,
+        );
+      }).toList();
 
-      // 3. Преобразуем части
-      final parts = partModels
-          .where((part) => part.published)
-          .map((part) => _createAudioBookPart(part, bookModel.folder))
-          .toList();
-
-      // 4. Создаем полную книгу
+      // 4. Формируем готовую бизнес-сущность
       final book = AudioBook(
-        id: bookModel.id,
-        title: bookModel.title,
-        author: bookModel.author,
-        description: bookModel.description,
-        reader: bookModel.reader,
-        coverUrl: '$_mediaBaseUrl${bookModel.cover}',
-        order: bookModel.order,
+        id: audiobook['id'] as int,
+        title: audiobook['title'] as String,
+        author: audiobook['author'] as String,
+        description: audiobook['description'] as String?,
+        reader: audiobook['reader'] as String,
+        coverUrl: '$_mediaBaseUrl${audiobook['cover']}',
+        order: audiobook['order_field'] as int? ?? 0,
         parts: parts,
       );
 
       return Right(book);
-    } on Failure catch (failure) {
-      return Left(failure);
     } catch (e) {
       return Left(ServerFailure(message: 'Ошибка загрузки деталей книги: $e'));
     }
   }
 
-  // 🎯 Вспомогательный метод для создания части книги
-  AudioBookPart _createAudioBookPart(AudioBookPartModel model, String folder) {
-    // Извлекаем имя файла из полного пути
-    // audiofile приходит как "audio/37_kokaev_t_arvganan/07_gabueva_sabyr_sagas.mp3"
-    final fileName = model.audiofile.split('/').last;
+  // ==================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ====================
 
-    // Формируем правильный URL: media/audio/папка_книги/имя_файла
+  /// Создаёт AudioBookPart из JSON-объекта, полученного от эндпоинта /audiobook/{id}
+  AudioBookPart _createAudioBookPartFromJson(
+    Map<String, dynamic> json,
+    String folder,
+  ) {
+    final audiofile = json['audiofile'] as String;
+    final fileName = audiofile.split('/').last;
     final audioUrl = '${_mediaBaseUrl}audio/$folder/$fileName';
-
-    // Парсим длительность из формата "ММ:СС" в Duration
-    final duration = _parseDuration(model.length);
-
-    // Определяем диалект (IRN -> iron, DIG -> digor)
-    final dialect = model.dialect == 'IRN' ? Dialect.iron : Dialect.digor;
-
-    // Получаем URL обложки из книги
-    final coverUrl = '${_mediaBaseUrl}${model.cover}';
+    final duration = _parseDuration(json['length'] as String);
+    final dialect = json['dialect'] == 'IRN' ? Dialect.iron : Dialect.digor;
 
     return AudioBookPart(
-      id: model.id,
-      bookId: model.bookId,
-      title: model.title,
-      text: model.text,
-      reader: model.reader,
+      id: json['id'] as int,
+      bookId: json['book_id'] as int,
+      title: json['title'] as String?,
+      text: json['text'] as String?,
+      reader: json['reader'] as String,
       audioUrl: audioUrl,
-      coverUrl: coverUrl,
       duration: duration,
-      order: model.order,
+      order: json['order'] as int? ?? 0,
       dialect: dialect,
+      coverUrl: '',
     );
   }
 
-  // ⏱ Парсинг длительности
+  /// Парсит строку длительности "ММ:СС" в Duration
   Duration _parseDuration(String length) {
     try {
       final parts = length.split(':');
       if (parts.length == 2) {
-        final minutes = int.parse(parts[0]);
-        final seconds = int.parse(parts[1]);
-        return Duration(minutes: minutes, seconds: seconds);
+        return Duration(
+          minutes: int.parse(parts[0]),
+          seconds: int.parse(parts[1]),
+        );
       }
     } catch (e) {
-      print('⚠️ Ошибка парсинга длительности "$length": $e');
+      print('Ошибка парсинга длительности "$length": $e');
     }
     return Duration.zero;
+  }
+
+  // ==================== УСТАРЕВШИЕ МЕТОДЫ (ОСТАВЛЕНЫ ДЛЯ СОВМЕСТИМОСТИ) ====================
+
+  @override
+  Future<Either<Failure, List<AudioBook>>> getAudioBooks() async {
+    // Устаревший метод – перенаправляем на getAudioBookDetails для каждой книги
+    final previewsResult = await getAudioBookPreviews();
+    return previewsResult.fold((failure) => Left(failure), (previews) async {
+      final List<AudioBook> books = [];
+      for (final preview in previews) {
+        final bookResult = await getAudioBookDetails(preview.id);
+        bookResult.fold((failure) => null, (book) => books.add(book));
+      }
+      return Right(books);
+    });
+  }
+
+  @override
+  Future<Either<Failure, AudioBook>> getAudioBookById(int id) async {
+    return getAudioBookDetails(id);
+  }
+
+  // Остальные методы, если требуются (getBookPartsLight, getFullPart и т.д.), можно не реализовывать или оставить заглушки.
+  // Но для соблюдения контракта интерфейса добавляем их:
+
+  @override
+  Future<Either<Failure, List<AudioBookPart>>> getBookPartsLight(
+    int bookId,
+  ) async {
+    // Не используется в текущей логике, но заглушка обязательна
+    return Left(
+      ServerFailure(message: 'Метод getBookPartsLight не реализован'),
+    );
+  }
+
+  @override
+  Future<Either<Failure, AudioBookPart>> getFullPart(int partId) async {
+    // Не используется в текущей логике
+    return Left(ServerFailure(message: 'Метод getFullPart не реализован'));
   }
 
   @override
   Future<Either<Failure, List<AudioBookPartPreview>>> getAudioBookParts(
     int bookId,
-  ) async {
-    try {
-      // Получаем информацию о книге (нужна папка для URL)
-      final bookModels = await remoteDataSource.getBooks();
-      final bookModel = bookModels.firstWhere(
-        (model) => model.id == bookId,
-        orElse: () => throw ServerFailure(message: 'Книга не найдена'),
-      );
-
-      // Загружаем части без текста (используем эндпоинт /parts/{bookId})
-      final partModels = await remoteDataSource.getBookParts(bookId);
-
-      final previews = partModels
-          .map(
-            (part) => AudioBookPartPreview(
-              id: part.id,
-              bookId: part.bookId,
-              title: part.title,
-              reader: part.reader,
-              audioUrl: _buildAudioUrl(part.audiofile, bookModel.folder),
-              duration: _parseDuration(part.length),
-              order: part.order,
-              dialect: part.dialect == 'IRN' ? Dialect.iron : Dialect.digor,
-            ),
-          )
-          .toList();
-
-      return Right(previews);
-    } on Failure catch (failure) {
-      return Left(failure);
-    } catch (e) {
-      return Left(ServerFailure(message: 'Ошибка загрузки частей: $e'));
-    }
-  }
-
-  String _buildAudioUrl(String audiofile, String folder) {
-    final fileName = audiofile.split('/').last;
-    return '${_mediaBaseUrl}audio/$folder/$fileName';
-  }
-
-  // ⚠️ Deprecated - оставляем для обратной совместимости, но не используем
-  @override
-  @Deprecated(
-    'Используйте getAudioBookPreviews() для списка и getAudioBookDetails() для деталей',
-  )
-  Future<Either<Failure, List<AudioBook>>> getAudioBooks() async {
-    // Этот метод больше не нужен, но оставляем заглушку
-    return Left(ServerFailure(message: 'Метод устарел'));
-  }
-
-  @override
-  @Deprecated('Используйте getAudioBookDetails() вместо getAudioBookById()')
-  Future<Either<Failure, AudioBook>> getAudioBookById(int id) async {
-    return Left(ServerFailure(message: 'Метод устарел'));
+  ) {
+    // TODO: implement getAudioBookParts
+    throw UnimplementedError();
   }
 }

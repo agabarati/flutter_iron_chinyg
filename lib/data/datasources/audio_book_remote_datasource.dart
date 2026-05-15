@@ -104,4 +104,24 @@ class AudioBookRemoteDataSource {
       throw ServerFailure(message: 'Ошибка при загрузке частей: $e');
     }
   }
+
+  /// Новый метод: получает полную информацию об аудиокниге (включая части с текстом) одним запросом
+  Future<Map<String, dynamic>> getFullAudioBook(int bookId) async {
+    try {
+      final response = await client
+          .get(
+            Uri.parse(ApiConstants.audioBookDetails(bookId)),
+            headers: {'Content-Type': 'application/json'},
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        throw ServerFailure(message: 'Ошибка сервера: ${response.statusCode}');
+      }
+    } catch (e) {
+      throw ServerFailure(message: 'Ошибка загрузки деталей книги: $e');
+    }
+  }
 }
