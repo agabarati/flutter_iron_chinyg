@@ -6,8 +6,6 @@ import '../../domain/entities/audio_book_preview.dart';
 import '../../domain/entities/audio_book_part.dart';
 import '../../core/errors/failures.dart';
 import '../datasources/audio_book_remote_datasource.dart';
-import '../models/audio_book_model.dart';
-import '../models/audio_book_part_model.dart';
 
 /// Реализация репозитория аудиокниг
 class AudioBookRepositoryImpl implements AudioBookRepository {
@@ -145,22 +143,6 @@ class AudioBookRepositoryImpl implements AudioBookRepository {
 
   // Остальные методы, если требуются (getBookPartsLight, getFullPart и т.д.), можно не реализовывать или оставить заглушки.
   // Но для соблюдения контракта интерфейса добавляем их:
-
-  @override
-  Future<Either<Failure, List<AudioBookPart>>> getBookPartsLight(
-    int bookId,
-  ) async {
-    // Не используется в текущей логике, но заглушка обязательна
-    return Left(
-      ServerFailure(message: 'Метод getBookPartsLight не реализован'),
-    );
-  }
-
-  @override
-  Future<Either<Failure, AudioBookPart>> getFullPart(int partId) async {
-    // Не используется в текущей логике
-    return Left(ServerFailure(message: 'Метод getFullPart не реализован'));
-  }
 
   @override
   Future<Either<Failure, List<AudioBookPartPreview>>> getAudioBookParts(
