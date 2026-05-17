@@ -1,8 +1,5 @@
-// lib/domain/entities/audio_book_preview.dart
 import 'package:equatable/equatable.dart';
 
-/// Облегченная версия аудиокниги для отображения в списке
-/// Содержит только данные из /audio/ эндпоинта
 class AudioBookPreview extends Equatable {
   final int id;
   final String title;
@@ -11,6 +8,7 @@ class AudioBookPreview extends Equatable {
   final String reader;
   final String coverUrl;
   final int order;
+  final bool isDownloaded; // для отображения значка загрузки на главном экране
 
   const AudioBookPreview({
     required this.id,
@@ -20,18 +18,8 @@ class AudioBookPreview extends Equatable {
     required this.reader,
     required this.coverUrl,
     required this.order,
+    this.isDownloaded = false,
   });
-
-  @override
-  List<Object?> get props => [
-    id,
-    title,
-    author,
-    description,
-    reader,
-    coverUrl,
-    order,
-  ];
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -41,6 +29,7 @@ class AudioBookPreview extends Equatable {
     'reader': reader,
     'coverUrl': coverUrl,
     'order': order,
+    'isDownloaded': isDownloaded ? 1 : 0,
   };
 
   factory AudioBookPreview.fromJson(Map<String, dynamic> json) {
@@ -52,6 +41,19 @@ class AudioBookPreview extends Equatable {
       reader: json['reader'],
       coverUrl: json['coverUrl'],
       order: json['order'],
+      isDownloaded: json['isDownloaded'] == 1,
     );
   }
+
+  @override
+  List<Object?> get props => [
+    id,
+    title,
+    author,
+    description,
+    reader,
+    coverUrl,
+    order,
+    isDownloaded,
+  ];
 }

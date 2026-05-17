@@ -1,4 +1,6 @@
+// lib/presentation/pages/player_page.dart
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
 import '../widgets/audio_player_widget.dart';
@@ -6,23 +8,28 @@ import '../widgets/parts_list_tab.dart';
 import '../widgets/text_view_tab.dart';
 import '../../services/audio_player_service.dart';
 import '../../domain/entities/audio_book.dart';
+import '../../core/errors/failures.dart';
 import '../../data/repositories/audio_book_repository_impl.dart';
 import '../../data/datasources/audio_book_remote_datasource.dart';
+import '../providers/providers.dart';
 
-class PlayerPage extends StatefulWidget {
+class PlayerPage extends ConsumerStatefulWidget {
   final int bookId;
   const PlayerPage({super.key, required this.bookId});
 
   @override
-  State<PlayerPage> createState() => _PlayerPageState();
+  ConsumerState<PlayerPage> createState() => _PlayerPageState();
 }
 
-class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
+class _PlayerPageState extends ConsumerState<PlayerPage>
+    with TickerProviderStateMixin {
   late TabController _tabController;
+  late DraggableScrollableController _draggableController;
   AudioBook? _book;
   bool _isLoading = true;
+  bool _isDownloading = false;
+  bool _isDownloaded = false;
   String? _error;
-  late DraggableScrollableController _draggableController;
 
   @override
   void initState() {
@@ -37,14 +44,28 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       _isLoading = true;
       _error = null;
     });
-
     try {
+      final partCacheRepo = ref.read(partCacheRepositoryProvider);
+
+      // 1. Пытаемся загрузить из локальной БД
+      final cachedBook = await partCacheRepo.loadBook(widget.bookId);
+      if (cachedBook != null && cachedBook.parts.isNotEmpty) {
+        setState(() {
+          _book = cachedBook;
+          _isLoading = false;
+        });
+        final downloaded = await partCacheRepo.isBookDownloaded(widget.bookId);
+        setState(() => _isDownloaded = downloaded);
+        AudioPlayerService.instance.setPlaylist(_book!.parts, startIndex: 0);
+        return;
+      }
+
+      // 2. Нет в кэше – загружаем из сети
       final remoteDataSource = AudioBookRemoteDataSource(client: http.Client());
       final repository = AudioBookRepositoryImpl(
         remoteDataSource: remoteDataSource,
       );
       final result = await repository.getAudioBookDetails(widget.bookId);
-
       result.fold(
         (failure) {
           setState(() {
@@ -53,21 +74,14 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
           });
         },
         (book) async {
-          final service = AudioPlayerService.instance;
-          final isDifferentBook = service.bookId != widget.bookId;
-
           setState(() {
             _book = book;
             _isLoading = false;
+            _isDownloaded = false;
           });
-
-          if (isDifferentBook) {
-            // Переключаем плеер на новую книгу
-            await service.switchToBook(widget.bookId, book.parts);
-            // Останавливаем, чтобы не играло автоматически
-            await service.stop();
-          }
-          // Если та же книга – ничего не делаем, воспроизведение продолжается
+          AudioPlayerService.instance.setPlaylist(book.parts, startIndex: 0);
+          // Сохраняем метаданные и части в БД (без аудио)
+          await partCacheRepo.downloadAndSaveBook(book);
         },
       );
     } catch (e) {
@@ -75,6 +89,90 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
         _error = e.toString();
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _downloadBook() async {
+    if (_book == null) return;
+    setState(() => _isDownloading = true); // показываем индикатор на кнопке
+
+    // Показываем диалог с прогрессом (опционально, для лучшей обратной связи)
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final partCacheRepo = ref.read(partCacheRepositoryProvider);
+      await partCacheRepo.downloadAndSaveBook(_book!); // дожидаемся завершения
+      setState(() => _isDownloaded = true);
+      // Обновляем провайдеры
+      ref.invalidate(downloadedBooksProvider);
+      ref.invalidate(audioBookPreviewsProvider);
+      if (mounted) Navigator.pop(context); // закрываем диалог
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Книга загружена и сохранена на устройстве'),
+        ),
+      );
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Ошибка загрузки: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() => _isDownloading = false); // скрываем индикатор на кнопке
+    }
+  }
+
+  Future<void> _deleteBook() async {
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Удаление книги'),
+        content: const Text(
+          'Вы уверены, что хотите удалить загруженную книгу? Аудиофайлы будут стёрты с устройства.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Удалить', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (shouldDelete != true) return;
+
+    setState(() => _isDownloading = true);
+    try {
+      final partCacheRepo = ref.read(partCacheRepositoryProvider);
+      await partCacheRepo.deleteBook(widget.bookId);
+      setState(() => _isDownloaded = false);
+      // Обновляем статус загрузки на главном экране
+      ref.invalidate(downloadedBooksProvider);
+      ref.invalidate(audioBookPreviewsProvider);
+      // Перезагружаем текущую книгу (теперь она будет без частей, загрузится из сети)
+      await _loadBook();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Книга удалена с устройства')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Ошибка удаления: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isDownloading = false);
     }
   }
 
@@ -97,48 +195,62 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       return Scaffold(
         appBar: AppBar(title: const Text('Аудиокнига')),
         body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
-                const SizedBox(height: 16),
-                Text(
-                  'Ошибка загрузки',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.red[800],
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _error!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 16),
-                ),
-                const SizedBox(height: 24),
-                ElevatedButton(
-                  onPressed: _loadBook,
-                  child: const Text('Повторить'),
-                ),
-              ],
-            ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(_error!),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _loadBook,
+                child: const Text('Повторить'),
+              ),
+            ],
           ),
         ),
       );
     }
-    if (_book == null) {
+    if (_book == null || _book!.parts.isEmpty) {
       return Scaffold(
         appBar: AppBar(title: const Text('Аудиокнига')),
-        body: const Center(child: Text('Книга не найдена')),
+        body: const Center(child: Text('Книга не найдена или нет частей')),
       );
     }
 
     return Scaffold(
       appBar: AppBar(
         title: Text(_book!.title),
+        actions: [
+          if (_isDownloaded)
+            IconButton(
+              onPressed: _isDownloading ? null : _deleteBook,
+              icon: _isDownloading
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.cloud_done, color: Colors.white),
+              tooltip: 'Удалить книгу',
+            )
+          else
+            IconButton(
+              onPressed: _isDownloading ? null : _downloadBook,
+              icon: _isDownloading
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.download, color: Colors.white),
+              tooltip: 'Загрузить книгу',
+            ),
+        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(48),
           child: Container(
@@ -148,7 +260,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
               indicatorColor: Colors.white,
               indicatorWeight: 3,
               labelColor: Colors.white,
-              unselectedLabelColor: Colors.white.withAlpha(150),
+              unselectedLabelColor: Colors.white.withOpacity(0.6),
               tabs: const [
                 Tab(text: 'НОМХЫГЪД'),
                 Tab(text: 'КÆСЫН'),
@@ -168,11 +280,11 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
           ),
           DraggableScrollableSheet(
             controller: _draggableController,
-            initialChildSize: 0.30,
-            minChildSize: 0.05,
-            maxChildSize: 0.30,
+            initialChildSize: 0.23,
+            minChildSize: 0.12,
+            maxChildSize: 0.23,
             snap: true,
-            snapSizes: const [0.05, 0.30],
+            snapSizes: const [0.12, 0.23],
             builder: (context, scrollController) {
               return Container(
                 decoration: BoxDecoration(
@@ -205,7 +317,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
                         controller: scrollController,
                         physics: const ClampingScrollPhysics(),
                         child: AudioPlayerWidget(
-                          key: ValueKey(_book!.id),
+                          key: ValueKey(widget.bookId),
                           book: _book!,
                         ),
                       ),

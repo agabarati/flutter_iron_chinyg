@@ -1,4 +1,5 @@
 import 'package:dartz/dartz.dart';
+import 'package:flutter_iron_chinyg/data/models/audio_book_part_model.dart';
 import 'package:flutter_iron_chinyg/domain/entities/audio_book_part_preview.dart';
 import '../../domain/repositories/audio_book_repository.dart';
 import '../../domain/entities/audio_book.dart';
@@ -44,36 +45,71 @@ class AudioBookRepositoryImpl implements AudioBookRepository {
   @override
   Future<Either<Failure, AudioBook>> getAudioBookDetails(int id) async {
     try {
-      // 1. Получаем полные данные одним запросом
+      // Пытаемся получить через новый эндпоинт /audiobook/{id}
       final data = await remoteDataSource.getFullAudioBook(id);
-
-      // 2. Парсим данные о книге
       final audiobook = data['audiobook'] as Map<String, dynamic>;
       final partsJson = data['audioparts'] as List;
 
-      // 3. Преобразуем каждую часть в бизнес-сущность
-      final List<AudioBookPart> parts = partsJson.map((partMap) {
-        return _createAudioBookPartFromJson(
-          partMap,
-          audiobook['folder'] as String,
+      final parts = partsJson.map((partMap) {
+        final folder = audiobook['folder'] as String;
+        final fileName = (partMap['audiofile'] as String).split('/').last;
+        final audioUrl = '${_mediaBaseUrl}audio/$folder/$fileName';
+        final duration = _parseDuration(partMap['length'] as String);
+        final dialect = partMap['dialect'] == 'IRN'
+            ? Dialect.iron
+            : Dialect.digor;
+        return AudioBookPart(
+          id: partMap['id'] as int,
+          bookId: partMap['book_id'] as int,
+          title: partMap['title'] as String?,
+          text: partMap['text'] as String?,
+          reader: partMap['reader'] as String,
+          audioUrl: audioUrl,
+          duration: duration,
+          order: partMap['order'] as int? ?? 0,
+          dialect: dialect,
+          coverUrl: '',
         );
       }).toList();
 
-      // 4. Формируем готовую бизнес-сущность
-      final book = AudioBook(
-        id: audiobook['id'] as int,
-        title: audiobook['title'] as String,
-        author: audiobook['author'] as String,
-        description: audiobook['description'] as String?,
-        reader: audiobook['reader'] as String,
-        coverUrl: '$_mediaBaseUrl${audiobook['cover']}',
-        order: audiobook['order_field'] as int? ?? 0,
-        parts: parts,
+      return Right(
+        AudioBook(
+          id: audiobook['id'] as int,
+          title: audiobook['title'] as String,
+          author: audiobook['author'] as String,
+          description: audiobook['description'] as String?,
+          reader: audiobook['reader'] as String,
+          coverUrl: '$_mediaBaseUrl${audiobook['cover']}',
+          order: audiobook['order_field'] as int? ?? 0,
+          parts: parts,
+        ),
       );
-
-      return Right(book);
     } catch (e) {
-      return Left(ServerFailure(message: 'Ошибка загрузки деталей книги: $e'));
+      // Fallback на старый метод
+      try {
+        final bookModels = await remoteDataSource.getBooks();
+        final bookModel = bookModels.firstWhere((model) => model.id == id);
+        final partModels = await remoteDataSource.getBookPartsWithText(id);
+        final parts = partModels
+            .map((part) => _createAudioBookPart(part, bookModel.folder))
+            .toList();
+        return Right(
+          AudioBook(
+            id: bookModel.id,
+            title: bookModel.title,
+            author: bookModel.author,
+            description: bookModel.description,
+            reader: bookModel.reader,
+            coverUrl: '$_mediaBaseUrl${bookModel.cover}',
+            order: bookModel.order,
+            parts: parts,
+          ),
+        );
+      } catch (e2) {
+        return Left(
+          ServerFailure(message: 'Ошибка загрузки деталей книги: $e2'),
+        );
+      }
     }
   }
 
@@ -150,5 +186,27 @@ class AudioBookRepositoryImpl implements AudioBookRepository {
   ) {
     // TODO: implement getAudioBookParts
     throw UnimplementedError();
+  }
+
+  // Внутри класса AudioBookRepositoryImpl
+
+  /// Создаёт AudioBookPart из модели и папки книги
+  AudioBookPart _createAudioBookPart(AudioBookPartModel model, String folder) {
+    final fileName = model.audiofile.split('/').last;
+    final audioUrl = '${_mediaBaseUrl}audio/$folder/$fileName';
+    final duration = _parseDuration(model.length);
+    final dialect = model.dialect == 'IRN' ? Dialect.iron : Dialect.digor;
+    return AudioBookPart(
+      id: model.id,
+      bookId: model.bookId,
+      title: model.title,
+      text: model.text,
+      reader: model.reader,
+      audioUrl: audioUrl,
+      duration: duration,
+      order: model.order,
+      dialect: dialect,
+      coverUrl: '',
+    );
   }
 }

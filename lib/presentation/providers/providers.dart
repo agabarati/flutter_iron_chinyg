@@ -16,6 +16,7 @@ import '../../domain/repositories/translation_repository.dart';
 import '../../domain/entities/audio_book_preview.dart';
 import '../../domain/entities/audio_book.dart';
 import '../../domain/entities/audio_book_part.dart';
+import '../../data/repositories/part_cache_repository.dart';
 
 final httpClientProvider = Provider<http.Client>((ref) => http.Client());
 
@@ -132,6 +133,10 @@ final databaseHelperProvider = Provider<DatabaseHelper>(
   (ref) => DatabaseHelper(),
 );
 
+final partCacheRepositoryProvider = Provider<PartCacheRepository>((ref) {
+  return PartCacheRepository();
+});
+
 // Провайдер для избранного
 // final favoriteBooksProvider = FutureProvider<List<AudioBookPreview>>((
 //   ref,
@@ -139,3 +144,18 @@ final databaseHelperProvider = Provider<DatabaseHelper>(
 //   final db = ref.watch(databaseHelperProvider);
 //   return await db.getFavoriteBooks();
 // });
+
+// lib/presentation/providers/providers.dart
+
+// Провайдер для множества загруженных книг (Set<int>)
+final downloadedBooksProvider = FutureProvider<Set<int>>((ref) async {
+  final partCacheRepo = ref.watch(partCacheRepositoryProvider);
+  final allBooksPreview = await ref.watch(audioBookPreviewsProvider.future);
+  final Set<int> downloaded = {};
+  for (final book in allBooksPreview) {
+    if (await partCacheRepo.isBookDownloaded(book.id)) {
+      downloaded.add(book.id);
+    }
+  }
+  return downloaded;
+});

@@ -3,6 +3,7 @@ import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import '../domain/entities/audio_book_part.dart';
+import '../data/repositories/part_cache_repository.dart';
 
 class PlaybackStatus {
   final bool playing;
@@ -33,11 +34,11 @@ class PlaybackStatus {
 }
 
 class AudioPlayerService extends BaseAudioHandler {
-  // Единственный экземпляр
   static final AudioPlayerService _instance = AudioPlayerService._internal();
   static AudioPlayerService get instance => _instance;
 
-  // Состояние текущей книги
+  AudioPlayerService() : this._internal();
+
   int _bookId = -1;
   List<AudioBookPart> _parts = [];
   int _currentIndex = -1;
@@ -47,7 +48,12 @@ class AudioPlayerService extends BaseAudioHandler {
   final _statusController = StreamController<PlaybackStatus>.broadcast();
   Stream<PlaybackStatus> get statusStream => _statusController.stream;
 
-  // Публичные геттеры
+  PartCacheRepository? _partCacheRepo;
+
+  void setPartCacheRepository(PartCacheRepository repo) {
+    _partCacheRepo = repo;
+  }
+
   bool get isPlaying => _player.playing;
   Duration get currentPosition => _player.position;
   Duration get currentDuration => _player.duration ?? Duration.zero;
@@ -55,11 +61,8 @@ class AudioPlayerService extends BaseAudioHandler {
   int get bookId => _bookId;
   List<AudioBookPart> get parts => List.unmodifiable(_parts);
   AudioBookPart? get currentPart =>
-      _currentIndex >= 0 && _currentIndex < _parts.length
-      ? _parts[_currentIndex]
-      : null;
+      _currentIndex >= 0 ? _parts[_currentIndex] : null;
 
-  // Приватный конструктор
   AudioPlayerService._internal() {
     _init();
   }
@@ -85,7 +88,7 @@ class AudioPlayerService extends BaseAudioHandler {
         duration: _player.duration ?? Duration.zero,
         currentIndex: _currentIndex,
         parts: _parts,
-        isInitialized: _parts.isNotEmpty && _currentIndex >= 0,
+        isInitialized: _parts.isNotEmpty,
         bookId: _bookId,
       ),
     );
@@ -103,16 +106,48 @@ class AudioPlayerService extends BaseAudioHandler {
     }
   }
 
-  /// Полностью сбросить плеер и переключиться на новую книгу
-  Future<void> switchToBook(int bookId, List<AudioBookPart> parts) async {
-    if (_bookId == bookId) return; // уже эта книга – ничего не делаем
+  // === НОВЫЙ МЕТОД setPlaylist ===
+  Future<void> setPlaylist(
+    List<AudioBookPart> parts, {
+    int startIndex = 0,
+  }) async {
     await _player.stop();
-    await _player.seek(Duration.zero); // <-- ОБНУЛЯЕМ ПОЗИЦИЮ
+    _parts = List.from(parts);
+    _bookId = _parts.isNotEmpty ? _parts.first.bookId : -1;
+    _currentIndex = startIndex.clamp(0, _parts.length - 1);
+    _isAudioSourceSet = false;
+
+    final items = _parts
+        .map(
+          (part) => MediaItem(
+            id: part.id.toString(),
+            title: part.title ?? 'Часть',
+            artist: part.reader,
+            duration: part.duration,
+            artUri: part.coverUrl.isNotEmpty
+                ? Uri.tryParse(part.coverUrl)
+                : null,
+          ),
+        )
+        .toList();
+
+    queue.add(items);
+    if (_currentIndex >= 0 && _currentIndex < items.length) {
+      mediaItem.add(items[_currentIndex]);
+    } else {
+      mediaItem.add(null);
+    }
+    _broadcastState();
+  }
+
+  Future<void> switchToBook(int bookId, List<AudioBookPart> parts) async {
+    if (_bookId == bookId) return;
+    await _player.stop();
+    await _player.seek(Duration.zero);
     _bookId = bookId;
     _parts = List.from(parts);
     _currentIndex = 0;
     _isAudioSourceSet = false;
-
     final items = _parts
         .map(
           (part) => MediaItem(
@@ -135,11 +170,17 @@ class AudioPlayerService extends BaseAudioHandler {
     _broadcastState();
   }
 
-  /// Загрузить и воспроизвести конкретную часть (по индексу)
   Future<void> playPart(int index, {Duration? startPosition}) async {
     if (index < 0 || index >= _parts.length) return;
     _currentIndex = index;
     final part = _parts[index];
+
+    String? url = part.audioUrl;
+    if (_partCacheRepo != null) {
+      final localPath = await _partCacheRepo!.getLocalFilePath(part.id);
+      if (localPath != null) url = localPath as String?;
+    }
+
     final mediaItemForPart = MediaItem(
       id: part.id.toString(),
       title: part.title ?? 'Часть ${index + 1}',
@@ -148,12 +189,11 @@ class AudioPlayerService extends BaseAudioHandler {
       artUri: part.coverUrl.isNotEmpty ? Uri.tryParse(part.coverUrl) : null,
     );
     await _player.setAudioSource(
-      AudioSource.uri(Uri.parse(part.audioUrl), tag: mediaItemForPart),
+      AudioSource.uri(Uri.parse(url!), tag: mediaItemForPart),
     );
     _isAudioSourceSet = true;
-    if (startPosition != null && startPosition.inSeconds > 0) {
+    if (startPosition != null && startPosition.inSeconds > 0)
       await _player.seek(startPosition);
-    }
     await _player.play();
     _broadcastState();
   }

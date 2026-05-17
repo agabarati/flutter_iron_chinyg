@@ -1,4 +1,3 @@
-// lib/presentation/pages/home_page.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -20,6 +19,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   @override
   Widget build(BuildContext context) {
     final previewsAsync = ref.watch(audioBookPreviewsProvider);
+    final downloadedAsync = ref.watch(downloadedBooksProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -27,22 +27,31 @@ class _HomePageState extends ConsumerState<HomePage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () => ref.invalidate(audioBookPreviewsProvider),
+            onPressed: () {
+              ref.invalidate(audioBookPreviewsProvider);
+              ref.invalidate(downloadedBooksProvider);
+            },
           ),
         ],
       ),
       body: previewsAsync.when(
         loading: () => const LoadingWidget(message: 'Загрузка списка книг...'),
         data: (previews) {
-          if (previews.isEmpty) {
-            return _buildEmptyState();
-          }
+          if (previews.isEmpty) return _buildEmptyState();
+          final downloadedSet = downloadedAsync.valueOrNull ?? {};
           return RefreshIndicator(
-            onRefresh: () async => ref.invalidate(audioBookPreviewsProvider),
+            onRefresh: () async {
+              ref.invalidate(audioBookPreviewsProvider);
+              ref.invalidate(downloadedBooksProvider);
+            },
             child: ListView.builder(
               padding: const EdgeInsets.symmetric(vertical: 8),
               itemCount: previews.length,
-              itemBuilder: (context, index) => _buildBookCard(previews[index]),
+              itemBuilder: (context, index) {
+                final book = previews[index];
+                final isDownloaded = downloadedSet.contains(book.id);
+                return _buildBookCard(book, isDownloaded);
+              },
             ),
           );
         },
@@ -51,7 +60,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  Widget _buildBookCard(AudioBookPreview book) {
+  Widget _buildBookCard(AudioBookPreview book, bool isDownloaded) {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       elevation: 2,
@@ -61,101 +70,126 @@ class _HomePageState extends ConsumerState<HomePage> {
         borderRadius: BorderRadius.circular(12),
         child: SizedBox(
           height: 130,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: CachedNetworkImage(
-                    imageUrl: book.coverUrl,
-                    width: 80,
-                    height: 106,
-                    fit: BoxFit.cover,
-                    placeholder: (_, __) => Container(
-                      width: 80,
-                      height: 106,
-                      color: Colors.grey[200],
-                      child: const Center(
-                        child: CircularProgressIndicator(strokeWidth: 2),
+          child: Stack(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: CachedNetworkImage(
+                        imageUrl: book.coverUrl,
+                        width: 80,
+                        height: 106,
+                        fit: BoxFit.cover,
+                        placeholder: (_, __) => Container(
+                          width: 80,
+                          height: 106,
+                          color: Colors.grey[200],
+                          child: const Center(
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ),
+                        errorWidget: (_, __, ___) => Container(
+                          width: 80,
+                          height: 106,
+                          color: Colors.grey[300],
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.book,
+                                size: 32,
+                                color: Colors.grey[600],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'нет\nобложки',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
-                    errorWidget: (_, __, ___) => Container(
-                      width: 80,
-                      height: 106,
-                      color: Colors.grey[300],
+                    const SizedBox(width: 16),
+                    Expanded(
                       child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(Icons.book, size: 32, color: Colors.grey[600]),
+                          Text(
+                            book.title,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                           const SizedBox(height: 4),
                           Text(
-                            'нет\nобложки',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.grey[600],
+                            book.author,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.black87,
                             ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 4),
+                          RichText(
+                            text: TextSpan(
+                              children: [
+                                const TextSpan(
+                                  text: 'Чиныг кæсы: ',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                                TextSpan(
+                                  text: book.reader,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ],
                       ),
                     ),
+                  ],
+                ),
+              ),
+              if (isDownloaded)
+                Positioned(
+                  bottom: 8,
+                  right: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).primaryColor,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.download_done,
+                      color: Colors.white,
+                      size: 16,
+                    ),
                   ),
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        book.title,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        book.author,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.black87,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 4),
-                      RichText(
-                        text: TextSpan(
-                          children: [
-                            const TextSpan(
-                              text: 'Чиныг кæсы: ',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey,
-                              ),
-                            ),
-                            TextSpan(
-                              text: book.reader,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey,
-                              ),
-                            ),
-                          ],
-                        ),
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+            ],
           ),
         ),
       ),
@@ -180,7 +214,10 @@ class _HomePageState extends ConsumerState<HomePage> {
           ),
           const SizedBox(height: 24),
           ElevatedButton.icon(
-            onPressed: () => ref.invalidate(audioBookPreviewsProvider),
+            onPressed: () {
+              ref.invalidate(audioBookPreviewsProvider);
+              ref.invalidate(downloadedBooksProvider);
+            },
             icon: const Icon(Icons.refresh),
             label: const Text('Бафæлварын ногæй'),
           ),
@@ -214,7 +251,10 @@ class _HomePageState extends ConsumerState<HomePage> {
             ),
             const SizedBox(height: 24),
             ElevatedButton.icon(
-              onPressed: () => ref.invalidate(audioBookPreviewsProvider),
+              onPressed: () {
+                ref.invalidate(audioBookPreviewsProvider);
+                ref.invalidate(downloadedBooksProvider);
+              },
               icon: const Icon(Icons.refresh),
               label: const Text('Бафæлварын ногæй'),
             ),
