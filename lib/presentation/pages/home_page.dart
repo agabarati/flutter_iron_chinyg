@@ -7,6 +7,7 @@ import '../providers/providers.dart';
 import '../widgets/loading_widget.dart';
 import 'player_page.dart';
 import '../../domain/entities/audio_book_preview.dart';
+import '../../core/errors/failures.dart';
 
 class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
@@ -26,30 +27,22 @@ class _HomePageState extends ConsumerState<HomePage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () {
-              ref.invalidate(audioBookPreviewsProvider);
-            },
+            onPressed: () => ref.invalidate(audioBookPreviewsProvider),
           ),
         ],
       ),
       body: previewsAsync.when(
-        loading: () =>
-            const LoadingWidget(message: 'Чингуыты номхыгъд æвгæд цæуы...'),
+        loading: () => const LoadingWidget(message: 'Загрузка списка книг...'),
         data: (previews) {
           if (previews.isEmpty) {
             return _buildEmptyState();
           }
           return RefreshIndicator(
-            onRefresh: () async {
-              ref.invalidate(audioBookPreviewsProvider);
-            },
+            onRefresh: () async => ref.invalidate(audioBookPreviewsProvider),
             child: ListView.builder(
               padding: const EdgeInsets.symmetric(vertical: 8),
               itemCount: previews.length,
-              itemBuilder: (context, index) {
-                final preview = previews[index];
-                return _buildBookCard(preview);
-              },
+              itemBuilder: (context, index) => _buildBookCard(previews[index]),
             ),
           );
         },
@@ -59,15 +52,12 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   Widget _buildBookCard(AudioBookPreview book) {
-    // Определяем форму слова "кæсы" или "кæсынц" в зависимости от количества чтецов
-    final readerPrefix = _getReaderPrefix(book.reader);
-
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: InkWell(
-        onTap: () => _navigateToPlayer(context, book.id),
+        onTap: () => _navigateToPlayer(book.id),
         borderRadius: BorderRadius.circular(12),
         child: SizedBox(
           height: 130,
@@ -76,7 +66,6 @@ class _HomePageState extends ConsumerState<HomePage> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Обложка книги
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: CachedNetworkImage(
@@ -84,7 +73,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                     width: 80,
                     height: 106,
                     fit: BoxFit.cover,
-                    placeholder: (context, url) => Container(
+                    placeholder: (_, __) => Container(
                       width: 80,
                       height: 106,
                       color: Colors.grey[200],
@@ -92,7 +81,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       ),
                     ),
-                    errorWidget: (context, url, error) => Container(
+                    errorWidget: (_, __, ___) => Container(
                       width: 80,
                       height: 106,
                       color: Colors.grey[300],
@@ -115,13 +104,10 @@ class _HomePageState extends ConsumerState<HomePage> {
                   ),
                 ),
                 const SizedBox(width: 16),
-
-                // Информация о книге
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Название книги
                       Text(
                         book.title,
                         style: const TextStyle(
@@ -132,7 +118,6 @@ class _HomePageState extends ConsumerState<HomePage> {
                         overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: 4),
-                      // Автор
                       Text(
                         book.author,
                         style: const TextStyle(
@@ -144,32 +129,27 @@ class _HomePageState extends ConsumerState<HomePage> {
                         overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: 4),
-                      // Чтецы — два блока: слева метка, справа имена
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Левая часть: "Чиныг кæсы:" или "Чиныг кæсынц:"
-                          Text(
-                            readerPrefix,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey,
+                      RichText(
+                        text: TextSpan(
+                          children: [
+                            const TextSpan(
+                              text: 'Чиныг кæсы: ',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          // Правая часть: имена чтецов
-                          Expanded(
-                            child: Text(
-                              book.reader,
+                            TextSpan(
+                              text: book.reader,
                               style: const TextStyle(
                                 fontSize: 12,
                                 color: Colors.grey,
                               ),
-                              maxLines: 3,
-                              overflow: TextOverflow.ellipsis,
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ),
@@ -180,18 +160,6 @@ class _HomePageState extends ConsumerState<HomePage> {
         ),
       ),
     );
-  }
-
-  String _getReaderPrefix(String reader) {
-    // Проверяем, есть ли несколько чтецов
-    // Разделители: запятая, точка с запятой, " и ", " , ", " ; "
-    if (reader.contains(',') ||
-        reader.contains(';') ||
-        reader.contains(' и ') ||
-        reader.contains(',')) {
-      return 'Чиныг кæсынц:';
-    }
-    return 'Чиныг кæсы:';
   }
 
   Widget _buildEmptyState() {
@@ -212,9 +180,7 @@ class _HomePageState extends ConsumerState<HomePage> {
           ),
           const SizedBox(height: 24),
           ElevatedButton.icon(
-            onPressed: () {
-              ref.invalidate(audioBookPreviewsProvider);
-            },
+            onPressed: () => ref.invalidate(audioBookPreviewsProvider),
             icon: const Icon(Icons.refresh),
             label: const Text('Бафæлварын ногæй'),
           ),
@@ -248,9 +214,7 @@ class _HomePageState extends ConsumerState<HomePage> {
             ),
             const SizedBox(height: 24),
             ElevatedButton.icon(
-              onPressed: () {
-                ref.invalidate(audioBookPreviewsProvider);
-              },
+              onPressed: () => ref.invalidate(audioBookPreviewsProvider),
               icon: const Icon(Icons.refresh),
               label: const Text('Бафæлварын ногæй'),
             ),
@@ -260,10 +224,10 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  void _navigateToPlayer(BuildContext context, int bookId) {
+  void _navigateToPlayer(int bookId) {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => PlayerPage(bookId: bookId)),
+      MaterialPageRoute(builder: (_) => PlayerPage(bookId: bookId)),
     );
   }
 }

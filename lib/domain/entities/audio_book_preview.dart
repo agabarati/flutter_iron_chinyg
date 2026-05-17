@@ -32,4 +32,26 @@ class AudioBookPreview extends Equatable {
     coverUrl,
     order,
   ];
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'title': title,
+    'author': author,
+    'description': description,
+    'reader': reader,
+    'coverUrl': coverUrl,
+    'order': order,
+  };
+
+  factory AudioBookPreview.fromJson(Map<String, dynamic> json) {
+    return AudioBookPreview(
+      id: json['id'],
+      title: json['title'],
+      author: json['author'],
+      description: json['description'],
+      reader: json['reader'],
+      coverUrl: json['coverUrl'],
+      order: json['order'],
+    );
+  }
 }

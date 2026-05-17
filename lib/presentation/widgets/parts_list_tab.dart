@@ -26,12 +26,13 @@ class _PartsListTabState extends State<PartsListTab> {
   @override
   Widget build(BuildContext context) {
     final parts = widget.book.parts;
+    final bottomPadding = MediaQuery.of(context).size.height * 0.30 + 8.0;
     if (parts.isEmpty) {
       return const Center(child: Text('Нет доступных частей'));
     }
 
     return ListView.builder(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: EdgeInsets.only(bottom: bottomPadding),
       itemCount: parts.length,
       itemBuilder: (context, index) {
         final part = parts[index];

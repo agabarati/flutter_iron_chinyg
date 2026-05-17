@@ -261,12 +261,13 @@ class _TextViewTabState extends ConsumerState<TextViewTab>
 
   @override
   Widget build(BuildContext context) {
+    final bottomPadding = MediaQuery.of(context).size.height * 0.30 + 8.0;
     super.build(context);
     if (_currentText.isEmpty) {
       return const Center(child: Text('Выберите часть для отображения текста'));
     }
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.only(bottom: bottomPadding),
       child: SelectableText.rich(
         _buildTextWithSpans(_currentText),
         style: const TextStyle(

@@ -1,6 +1,11 @@
 // lib/presentation/providers/providers.dart
+import 'dart:async';
+
+import 'package:flutter_iron_chinyg/data/database/database_helper.dart';
+import 'package:flutter_iron_chinyg/data/repositories/audio_book_cache_repository.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/datasources/audio_book_remote_datasource.dart';
 import '../../data/datasources/translation_remote_datasource.dart';
@@ -12,33 +17,61 @@ import '../../domain/entities/audio_book_preview.dart';
 import '../../domain/entities/audio_book.dart';
 import '../../domain/entities/audio_book_part.dart';
 
-// 🌐 HTTP клиент
-final httpClientProvider = Provider<http.Client>((ref) {
-  return http.Client();
+final httpClientProvider = Provider<http.Client>((ref) => http.Client());
+
+final sharedPreferencesProvider = FutureProvider<SharedPreferences>((
+  ref,
+) async {
+  return await SharedPreferences.getInstance();
 });
 
-// 📡 Remote Data Source
+final audioBookCacheRepositoryProvider = Provider<AudioBookCacheRepository>((
+  ref,
+) {
+  final prefs = ref.watch(sharedPreferencesProvider).value;
+  if (prefs == null) throw Exception('SharedPreferences not initialized');
+  return AudioBookCacheRepository(prefs: prefs);
+});
+
 final audioBookRemoteDataSourceProvider = Provider<AudioBookRemoteDataSource>((
   ref,
 ) {
   return AudioBookRemoteDataSource(client: ref.watch(httpClientProvider));
 });
 
-// 📦 Репозиторий
 final audioBookRepositoryProvider = Provider<AudioBookRepository>((ref) {
   return AudioBookRepositoryImpl(
     remoteDataSource: ref.watch(audioBookRemoteDataSourceProvider),
   );
 });
 
-// 🖼️ Провайдер для списка книг (превью)
+/// Провайдер списка книг с кэшированием (сначала БД, потом сеть)
 final audioBookPreviewsProvider = FutureProvider<List<AudioBookPreview>>((
   ref,
 ) async {
-  final repository = ref.watch(audioBookRepositoryProvider);
-  final result = await repository.getAudioBookPreviews();
+  final cacheRepo = ref.watch(audioBookCacheRepositoryProvider);
+  final remoteRepo = ref.watch(audioBookRepositoryProvider);
 
-  return result.fold((failure) => throw failure, (previews) => previews);
+  final cached = await cacheRepo.loadBooks();
+
+  if (cached != null && cached.isNotEmpty) {
+    // Есть кэш – возвращаем его, а в фоне обновляем
+    unawaited(
+      remoteRepo.getAudioBookPreviews().then((result) {
+        result.fold((failure) => null, (freshBooks) async {
+          await cacheRepo.saveBooks(freshBooks);
+        });
+      }),
+    );
+    return cached;
+  } else {
+    // Кэша нет – ждём сеть
+    final result = await remoteRepo.getAudioBookPreviews();
+    return result.fold((failure) => throw failure, (books) {
+      cacheRepo.saveBooks(books);
+      return books;
+    });
+  }
 });
 
 // 📚 Провайдер для детальной информации о книге
@@ -94,3 +127,15 @@ final audioBooksProvider = FutureProvider<List<AudioBook>>((ref) async {
 
   return result.fold((failure) => throw failure, (books) => books);
 });
+
+final databaseHelperProvider = Provider<DatabaseHelper>(
+  (ref) => DatabaseHelper(),
+);
+
+// Провайдер для избранного
+// final favoriteBooksProvider = FutureProvider<List<AudioBookPreview>>((
+//   ref,
+// ) async {
+//   final db = ref.watch(databaseHelperProvider);
+//   return await db.getFavoriteBooks();
+// });
