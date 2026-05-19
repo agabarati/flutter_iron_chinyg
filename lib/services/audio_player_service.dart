@@ -140,8 +140,9 @@ class AudioPlayerService extends BaseAudioHandler {
     _broadcastState();
   }
 
+  /// Переключает плеер на другую книгу. Если bookId совпадает с текущим, ничего не делает.
   Future<void> switchToBook(int bookId, List<AudioBookPart> parts) async {
-    if (_bookId == bookId) return;
+    if (_bookId == bookId) return; // та же книга – не сбрасываем
     await _player.stop();
     await _player.seek(Duration.zero);
     _bookId = bookId;

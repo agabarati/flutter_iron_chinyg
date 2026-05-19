@@ -30,6 +30,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
   bool _isDownloading = false;
   bool _isDownloaded = false;
   String? _error;
+  int? _currentBookId; // для отслеживания текущей открытой книги
 
   @override
   void initState() {
@@ -47,7 +48,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
     try {
       final partCacheRepo = ref.read(partCacheRepositoryProvider);
 
-      // 1. Пытаемся загрузить из локальной БД
+      // 1. Пытаемся загрузить книгу из локальной БД (включая части)
       final cachedBook = await partCacheRepo.loadBook(widget.bookId);
       if (cachedBook != null && cachedBook.parts.isNotEmpty) {
         setState(() {
@@ -56,11 +57,19 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
         });
         final downloaded = await partCacheRepo.isBookDownloaded(widget.bookId);
         setState(() => _isDownloaded = downloaded);
-        AudioPlayerService.instance.setPlaylist(_book!.parts, startIndex: 0);
+
+        // Переключаем плеер, если книга другая, иначе ничего не делаем
+        if (_currentBookId != widget.bookId) {
+          AudioPlayerService.instance.switchToBook(
+            widget.bookId,
+            cachedBook.parts,
+          );
+          _currentBookId = widget.bookId;
+        }
         return;
       }
 
-      // 2. Нет в кэше – загружаем из сети
+      // 2. Кэша нет – загружаем из сети (только метаданные, без аудио)
       final remoteDataSource = AudioBookRemoteDataSource(client: http.Client());
       final repository = AudioBookRepositoryImpl(
         remoteDataSource: remoteDataSource,
@@ -79,9 +88,13 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
             _isLoading = false;
             _isDownloaded = false;
           });
-          AudioPlayerService.instance.setPlaylist(book.parts, startIndex: 0);
-          // Сохраняем метаданные и части в БД (без аудио)
-          await partCacheRepo.downloadAndSaveBook(book);
+          // Сохраняем метаданные в БД (части без аудио)
+          await partCacheRepo.saveBookMetadata(book);
+          // Переключаем плеер, если книга другая
+          if (_currentBookId != widget.bookId) {
+            AudioPlayerService.instance.switchToBook(widget.bookId, book.parts);
+            _currentBookId = widget.bookId;
+          }
         },
       );
     } catch (e) {
@@ -94,38 +107,112 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
 
   Future<void> _downloadBook() async {
     if (_book == null) return;
-    setState(() => _isDownloading = true); // показываем индикатор на кнопке
 
-    // Показываем диалог с прогрессом (опционально, для лучшей обратной связи)
+    // Диалог подтверждения загрузки
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Загрузка книги'),
+        content: const Text(
+          'Вы уверены, что хотите загрузить эту книгу для офлайн-прослушивания?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text(
+              'Загрузить',
+              style: TextStyle(color: Colors.green),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    setState(() => _isDownloading = true);
+
+    final cancelNotifier = ValueNotifier<bool>(false);
+    final progressNotifier = ValueNotifier<double>(0.0);
+    final total = _book!.parts.length;
+
+    // Диалог прогресса с кнопкой «Отмена»
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => const Center(child: CircularProgressIndicator()),
+      builder: (context) {
+        return ValueListenableBuilder(
+          valueListenable: progressNotifier,
+          builder: (context, value, _) {
+            final completed = (value * total).toInt();
+            return AlertDialog(
+              title: const Text('Загрузка книги'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  LinearProgressIndicator(
+                    value: value,
+                    minHeight: 6,
+                    backgroundColor: Colors.grey[200],
+                    valueColor: AlwaysStoppedAnimation(
+                      Theme.of(context).primaryColor,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text('$completed из $total частей'),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    cancelNotifier.value = true;
+                    Navigator.pop(context);
+                  },
+                  child: const Text(
+                    'Отмена',
+                    style: TextStyle(color: Colors.red),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
 
     try {
       final partCacheRepo = ref.read(partCacheRepositoryProvider);
-      await partCacheRepo.downloadAndSaveBook(_book!); // дожидаемся завершения
+      await partCacheRepo.downloadAndSaveBookWithCancel(
+        _book!,
+        (c, t) => progressNotifier.value = c / t,
+        cancelNotifier,
+      );
+      if (mounted) Navigator.pop(context); // закрываем диалог прогресса
       setState(() => _isDownloaded = true);
-      // Обновляем провайдеры
       ref.invalidate(downloadedBooksProvider);
       ref.invalidate(audioBookPreviewsProvider);
-      if (mounted) Navigator.pop(context); // закрываем диалог
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Книга загружена и сохранена на устройстве'),
         ),
       );
     } catch (e) {
-      if (mounted) Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Ошибка загрузки: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted && cancelNotifier.value) {
+        // отмена уже обработана, диалог закрыт
+      } else {
+        if (mounted) Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Ошибка загрузки: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } finally {
-      setState(() => _isDownloading = false); // скрываем индикатор на кнопке
+      setState(() => _isDownloading = false);
     }
   }
 
@@ -156,11 +243,8 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
       final partCacheRepo = ref.read(partCacheRepositoryProvider);
       await partCacheRepo.deleteBook(widget.bookId);
       setState(() => _isDownloaded = false);
-      // Обновляем статус загрузки на главном экране
       ref.invalidate(downloadedBooksProvider);
-      ref.invalidate(audioBookPreviewsProvider);
-      // Перезагружаем текущую книгу (теперь она будет без частей, загрузится из сети)
-      await _loadBook();
+      // Не перезагружаем страницу, просто обновляем состояние
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Книга удалена с устройства')),
       );
@@ -172,7 +256,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
         ),
       );
     } finally {
-      if (mounted) setState(() => _isDownloading = false);
+      setState(() => _isDownloading = false);
     }
   }
 
@@ -223,31 +307,13 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
           if (_isDownloaded)
             IconButton(
               onPressed: _isDownloading ? null : _deleteBook,
-              icon: _isDownloading
-                  ? const SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.cloud_done, color: Colors.white),
+              icon: const Icon(Icons.cloud_done, color: Colors.white),
               tooltip: 'Удалить книгу',
             )
           else
             IconButton(
               onPressed: _isDownloading ? null : _downloadBook,
-              icon: _isDownloading
-                  ? const SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.download, color: Colors.white),
+              icon: const Icon(Icons.download, color: Colors.white),
               tooltip: 'Загрузить книгу',
             ),
         ],
@@ -280,11 +346,11 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
           ),
           DraggableScrollableSheet(
             controller: _draggableController,
-            initialChildSize: 0.23,
+            initialChildSize: 0.30,
             minChildSize: 0.12,
-            maxChildSize: 0.23,
+            maxChildSize: 0.30,
             snap: true,
-            snapSizes: const [0.12, 0.23],
+            snapSizes: const [0.12, 0.30],
             builder: (context, scrollController) {
               return Container(
                 decoration: BoxDecoration(

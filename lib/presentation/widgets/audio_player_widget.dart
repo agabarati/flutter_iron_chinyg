@@ -23,10 +23,11 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
 
   @override
   Widget build(BuildContext context) {
-    final hasPart = _service.currentIndex >= 0 && _service.parts.isNotEmpty;
-    final duration = _service.currentDuration;
-    final position = _service.currentPosition;
-    final isPlaying = _service.isPlaying;
+    final hasPart = _service!.currentIndex >= 0 && _service!.parts.isNotEmpty;
+    final currentPart = _service!.currentPart;
+    final duration = currentPart?.duration ?? Duration.zero;
+    final position = _service!.currentPosition;
+    final isPlaying = _service!.isPlaying;
     final progress = duration.inSeconds > 0
         ? position.inSeconds / duration.inSeconds
         : 0.0;

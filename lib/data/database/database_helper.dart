@@ -78,7 +78,7 @@ class DatabaseHelper {
           whereArgs: [book.id],
         );
         if (existing.isNotEmpty) {
-          // Обновляем метаданные, но НЕ трогаем isDownloaded
+          // Обновляем метаданные, НО НЕ ТРОГАЕМ isDownloaded и isFavorite
           await txn.update(
             'books',
             {
@@ -89,6 +89,7 @@ class DatabaseHelper {
               'coverUrl': book.coverUrl,
               'book_order': book.order,
               'lastUpdate': DateTime.now().millisecondsSinceEpoch,
+              // isFavorite и isDownloaded не обновляем
             },
             where: 'id = ?',
             whereArgs: [book.id],
@@ -291,5 +292,24 @@ class DatabaseHelper {
           ),
         )
         .toList();
+  }
+
+  /// Сбрасывает статус загрузки книги: удаляет ссылки на аудиофайлы и сбрасывает флаг isDownloaded
+  Future<void> resetBookDownload(int bookId) async {
+    final db = await database;
+    // Обнуляем localFilePath для всех частей книги
+    await db.update(
+      'book_parts',
+      {'localFilePath': null},
+      where: 'bookId = ?',
+      whereArgs: [bookId],
+    );
+    // Сбрасываем флаг загрузки книги
+    await db.update(
+      'books',
+      {'isDownloaded': 0},
+      where: 'id = ?',
+      whereArgs: [bookId],
+    );
   }
 }

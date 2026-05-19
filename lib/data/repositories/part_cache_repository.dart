@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'package:flutter/material.dart';
+
 import '../database/database_helper.dart';
 import '../../domain/entities/audio_book.dart';
 import '../../domain/entities/audio_book_part.dart';
@@ -8,9 +10,20 @@ class PartCacheRepository {
   final DatabaseHelper dbHelper = DatabaseHelper();
   final DownloadService downloadService = DownloadService();
 
+  // Метод для обратной совместимости (без прогресса)
   Future<void> downloadAndSaveBook(AudioBook book) async {
+    await downloadAndSaveBookWithProgress(book, (_, __) {});
+  }
+
+  // Новый метод с прогрессом
+  Future<void> downloadAndSaveBookWithProgress(
+    AudioBook book,
+    void Function(int completed, int total) onProgress,
+  ) async {
     await dbHelper.saveBook(book);
     await dbHelper.saveParts(book.id, book.parts);
+    int completed = 0;
+    final total = book.parts.length;
     for (final part in book.parts) {
       final fileName = part.audioUrl.split('/').last;
       final localPath = await downloadService.downloadFile(
@@ -18,8 +31,9 @@ class PartCacheRepository {
         fileName,
       );
       await dbHelper.markPartDownloaded(part.id, localPath);
+      completed++;
+      onProgress(completed, total);
     }
-    // После успешной загрузки всех частей помечаем книгу как загруженную
     await dbHelper.markBookDownloaded(book.id);
   }
 
@@ -45,7 +59,7 @@ class PartCacheRepository {
   }
 
   Future<void> deleteBook(int bookId) async {
-    // Удаляем аудиофайлы
+    // 1. Удаляем аудиофайлы
     final book = await loadBook(bookId);
     if (book != null) {
       for (final part in book.parts) {
@@ -58,10 +72,39 @@ class PartCacheRepository {
         }
       }
     }
-    // Удаляем все части из БД
-    final db = await dbHelper.database;
-    await db.delete('book_parts', where: 'bookId = ?', whereArgs: [bookId]);
-    // Сбрасываем флаг загрузки книги
-    await dbHelper.markBookNotDownloaded(bookId);
+    // 2. Сбрасываем статус загрузки (очищаем localFilePath и isDownloaded), но НЕ удаляем части
+    await dbHelper.resetBookDownload(bookId);
+  }
+
+  /// Сохраняет только метаданные книги и части (без аудиофайлов)
+  Future<void> saveBookMetadata(AudioBook book) async {
+    await dbHelper.saveBook(book);
+    await dbHelper.saveParts(book.id, book.parts);
+  }
+
+  Future<void> downloadAndSaveBookWithCancel(
+    AudioBook book,
+    void Function(int completed, int total) onProgress,
+    ValueNotifier<bool> cancelNotifier,
+  ) async {
+    await dbHelper.saveBook(book);
+    await dbHelper.saveParts(book.id, book.parts);
+    int completed = 0;
+    final total = book.parts.length;
+    for (final part in book.parts) {
+      if (cancelNotifier.value) {
+        await deleteBook(book.id); // удаляем уже скачанные части и аудио
+        throw Exception('Загрузка отменена пользователем');
+      }
+      final fileName = part.audioUrl.split('/').last;
+      final localPath = await downloadService.downloadFile(
+        part.audioUrl,
+        fileName,
+      );
+      await dbHelper.markPartDownloaded(part.id, localPath);
+      completed++;
+      onProgress(completed, total);
+    }
+    await dbHelper.markBookDownloaded(book.id);
   }
 }
