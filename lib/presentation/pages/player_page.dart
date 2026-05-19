@@ -347,10 +347,10 @@ class _PlayerPageState extends ConsumerState<PlayerPage>
           DraggableScrollableSheet(
             controller: _draggableController,
             initialChildSize: 0.30,
-            minChildSize: 0.12,
+            minChildSize: 0.05,
             maxChildSize: 0.30,
             snap: true,
-            snapSizes: const [0.12, 0.30],
+            snapSizes: const [0.05, 0.30],
             builder: (context, scrollController) {
               return Container(
                 decoration: BoxDecoration(
